@@ -1,0 +1,28 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0f1115; color: #e6e6e6; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 24px; }
+h1 { font-size: 22px; } h2 { font-size: 20px; }
+.muted { color: #9aa0a6; }
+.small { font-size: 13px; }
+a { color: #6ea8fe; }
+.card { background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 12px; padding: 16px; margin: 16px 0; display: flex; flex-direction: column; gap: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+input { padding: 8px 10px; border-radius: 8px; border: 1px solid #333; background: #0f1115; color: #e6e6e6; }
+button { padding: 10px 14px; border-radius: 10px; border: 1px solid #333; background: #232733; color: #e6e6e6; cursor: pointer; font-size: 14px; }
+button:hover { border-color: #4a5162; }
+button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+button.danger { background: #b3261e; border-color: #b3261e; color: #fff; }
+button.on { background: #16643a; border-color: #1c7d49; }
+button.off { background: #402626; border-color: #6b3838; }
+button.ghost { background: transparent; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+.speakers { margin: 8px 0; color: #9ee6b4; font-size: 14px; }
+.videos { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+.mediaGrid { display: flex; flex-wrap: wrap; gap: 8px; min-height: 60px; }
+.log { background: #0b0d11; border: 1px solid #222; border-radius: 8px; padding: 12px; max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+.bar { display: grid; grid-template-columns: 90px 1fr 130px; align-items: center; gap: 10px; }
+.barLabel { font-size: 14px; }
+.barTrack { background: #0f1115; border-radius: 6px; height: 16px; overflow: hidden; border: 1px solid #2a2f3a; }
+.barFill { display: block; height: 100%; background: linear-gradient(90deg, #2f6fed, #6ea8fe); }
+.barVal { font-size: 12px; color: #9aa0a6; text-align: right; }

@@ -1,0 +1,30 @@
+# LiveKit 서버 설정 (OpenVidu3 코어). 데모/EC2 로컬용.
+port: 7880
+bind_addresses:
+  - ""            # 모든 인터페이스
+
+rtc:
+  tcp_port: 7881
+  # WebRTC 미디어 UDP 포트 범위 (docker-compose 에서 열어줌)
+  port_range_start: 50000
+  port_range_end: 50060
+  use_external_ip: false      # EC2 공인망 배포 시 true + node_ip 설정 권장
+
+redis:
+  address: redis:6379         # Egress 와 메시지 버스를 공유
+
+keys:
+  # ⚠️ 데모 키. 운영에선 반드시 교체. .env / application.yml 과 일치해야 한다.
+  devkey: secretsecretsecretsecret
+
+# 회의방 기본 타임아웃 (01-room-lifecycle.md §4)
+room:
+  empty_timeout: 120          # 아무도 안 들어온 방: 2분
+  departure_timeout: 20       # 마지막 한 명이 나간 뒤: 20초
+  auto_create: false          # 반드시 백엔드 createRoom 으로만 생성
+
+# 웹훅: 이벤트를 우리 백엔드로 쏜다 (04 §5-1)
+webhook:
+  api_key: devkey             # 이 키로 웹훅 JWT 를 서명 → 백엔드가 검증
+  urls:
+    - http://backend:8080/api/livekit/webhook
