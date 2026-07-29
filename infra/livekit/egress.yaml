@@ -1,0 +1,19 @@
+# LiveKit Egress 워커 설정 (04-egress.md).
+# Egress 는 LiveKit 방을 옆에서 구독해 오디오를 뽑아 파일로 쓴다.
+# 저장 목적지(S3/MinIO)는 백엔드가 요청마다 함께 넘기므로 여기엔 최소만 둔다.
+
+# LiveKit 과 같은 Redis 로 통신한다 (필수)
+redis:
+  address: redis:6379
+
+# LiveKit API 자격증명 (livekit.yaml 의 keys 와 일치)
+api_key: devkey
+api_secret: secretsecretsecretsecret
+ws_url: ws://livekit:7880
+
+# 오디오 전용 녹음이라 CPU 부담은 낮지만, Egress 는 Chrome 을 띄운다.
+insecure: true                # 데모: 자체 서명/평문 허용
+log_level: info
+
+# 참고: 여기 s3 를 기본값으로 둘 수도 있으나, 이 데모는 백엔드의
+# EgressService 가 요청마다 S3Upload(=MinIO) 를 넘긴다(04 §5-3).

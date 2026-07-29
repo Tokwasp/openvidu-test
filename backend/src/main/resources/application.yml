@@ -1,0 +1,44 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: meeting
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:meeting}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: ${DB_USER:meeting}
+    password: ${DB_PASSWORD:meeting}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update          # 데모 편의용. 운영에선 flyway 등으로 교체
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+# ── LiveKit(OpenVidu3) 접속 정보 ──────────────────────────────
+livekit:
+  # 브라우저가 WebRTC로 붙는 주소 (프론트에 그대로 내려줌)
+  ws-url: ${LIVEKIT_WS_URL:ws://localhost:7880}
+  # 백엔드→LiveKit REST(Room/Egress) 호출 주소 (도커 내부 네트워크)
+  host: ${LIVEKIT_HOST:http://livekit:7880}
+  api-key: ${LIVEKIT_API_KEY:devkey}
+  api-secret: ${LIVEKIT_API_SECRET:secretsecretsecretsecret}
+  # 토큰 유효시간(ms) — 02-access-token.md §5: 입장까지 10분
+  token-ttl-ms: 600000
+  # 회의방 타임아웃 — 01-room-lifecycle.md §4
+  empty-timeout-sec: 120
+  departure-timeout-sec: 20
+
+# ── MinIO(스크래치) — Egress 출력 목적지이자 워커의 읽기/삭제 대상 ──
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://minio:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:recordings}
+  region: ${MINIO_REGION:us-east-1}
+
+logging:
+  level:
+    com.ssafy.meeting: DEBUG

@@ -3,3 +3,7 @@ build/
 .idea/
 *.iml
 .env
+
+# node / frontend
+node_modules/
+dist/
