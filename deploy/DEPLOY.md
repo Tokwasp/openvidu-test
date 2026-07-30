@@ -8,6 +8,56 @@
 
 ---
 
+## 빠른 시작 — SSAFY 단일 도메인 (`i15d205.p.ssafy.io`)
+
+SSAFY 도메인은 프로젝트당 **하나**만 주어져 `livekit.` 같은 서브도메인을 만들 수 없다.
+따라서 **단일 도메인 방식**(§5-B, `/rtc` 경로로 LiveKit 프록시)을 쓴다.
+아래는 이 도메인에 맞춘 전체 명령이다(각 단계 상세는 아래 절 참고).
+
+```bash
+# ── (1) 저장소 위치로 이동 (예시 경로, 본인 것으로) ──────────────
+cd ~/test
+
+# ── (2) LiveKit 키 생성 후 .env / livekit.yaml / egress.yaml 에 동일하게 반영 ──
+openssl rand -hex 16      # KEY
+openssl rand -base64 32   # SECRET
+cp .env.example .env
+#   .env 편집:
+#     LIVEKIT_WS_URL=wss://i15d205.p.ssafy.io     ← 단일 도메인이라 서브도메인 없음
+#     LIVEKIT_API_KEY=<KEY>  LIVEKIT_API_SECRET=<SECRET>
+#     MINIO_ACCESS_KEY / MINIO_SECRET_KEY 도 실제 값으로
+#   infra/livekit/livekit.yaml:  keys 를 <KEY>:<SECRET> 로, webhook.api_key=<KEY>,
+#                                rtc.use_external_ip: true 로 변경
+#   infra/livekit/egress.yaml:   api_key=<KEY>  api_secret=<SECRET>
+
+# ── (3) 도커 스택 기동 ──────────────────────────────────────────
+docker compose up --build -d && docker compose ps
+
+# ── (4) nginx (단일 도메인 설정 하나만 심는다) ──────────────────
+sudo apt update && sudo apt install -y nginx
+sudo cp deploy/nginx/app-single-domain.conf /etc/nginx/sites-available/app.conf
+sudo sed -i 's/example\.com/i15d205.p.ssafy.io/g' /etc/nginx/sites-available/app.conf
+sudo ln -sf /etc/nginx/sites-available/app.conf /etc/nginx/sites-enabled/app.conf
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+# ── (5) HTTPS 발급 (도메인 1개) ─────────────────────────────────
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d i15d205.p.ssafy.io --redirect --agree-tos \
+  -m 본인이메일@example.com --no-eff-email
+
+# ── (6) 방화벽 ──────────────────────────────────────────────────
+bash deploy/setup-firewall.sh
+
+# ── (7) 검증 ────────────────────────────────────────────────────
+curl -I https://i15d205.p.ssafy.io           # 200/301 + 유효 인증서
+curl -i https://i15d205.p.ssafy.io/rtc/validate   # LiveKit 응답(426/200 계열)이면 프록시 OK
+```
+
+> `.env` 의 `LIVEKIT_WS_URL` 을 바꿨다면 백엔드만 재기동: `docker compose up -d --force-recreate backend`
+
+---
+
 ## 0. 먼저 — 지금 설정 점검 결과
 
 클론한 저장소를 그대로 EC2에 올리면 **HTTPS에서 회의가 안 된다.** 이유와 조치:
