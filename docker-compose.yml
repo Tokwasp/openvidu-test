@@ -114,6 +114,11 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-recordings}
+      # 모놀리식과 공유하는 Upstash Redis 세션 (02 §7). 반드시 채워야 기동된다.
+      UPSTASH_REDIS_HOST: ${UPSTASH_REDIS_HOST:-}
+      UPSTASH_REDIS_PORT: ${UPSTASH_REDIS_PORT:-6379}
+      UPSTASH_REDIS_PASSWORD: ${UPSTASH_REDIS_PASSWORD:-}
+      UPSTASH_REDIS_SSL: ${UPSTASH_REDIS_SSL:-true}
     ports:
       - "127.0.0.1:8080:8080"   # 프론트(nginx) 컨테이너가 /api 를 프록시. 외부 직접 노출 안 함
     depends_on:
