@@ -45,14 +45,22 @@ public class MeetingService {
     }
 
     /**
-     * Room 을 먼저 만들고 Redis 에 저장한다(순서 중요).
-     * 반대로 하면 Redis 엔 있는데 LiveKit 호출 실패로 못 들어가는 방이 남는다.
+     * Redis 에 먼저 등록한 뒤 Room 을 만든다(순서 중요).
+     * createRoom 은 즉시 room_started 웹훅을 쏘는데, 그 웹훅이 전체 mixed Egress 를
+     * 시작하려고 isKnownRoom 을 본다. 방을 나중에 등록하면 웹훅이 먼저 도착해
+     * "알 수 없는 room" 으로 걸러져 <b>mixed Egress 가 아예 시작되지 않는다</b>.
+     * createRoom 이 실패하면 못 들어가는 방이 Redis 에 남지 않도록 등록을 되돌린다.
      * 동시 첫 입장으로 방이 둘 생기는 것은 이 규모에서 방어하지 않는다(01 §2).
      */
     private String openNewRoom(int projectId) {
         String roomName = UUID.randomUUID().toString();   // 회의마다 새 UUID (녹음 폴더의 자연 키)
-        createRoom(roomName);
         roomRegistry.open(projectId, roomName);
+        try {
+            createRoom(roomName);
+        } catch (RuntimeException e) {
+            roomRegistry.closeByRoom(roomName);           // 방 생성 실패 → Redis 등록 롤백
+            throw e;
+        }
         log.info("[Join] 새 회의 생성 project={} room={}", projectId, roomName);
         return roomName;
     }
