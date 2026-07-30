@@ -58,7 +58,9 @@ services:
       AWS_S3_ACCESS_KEY: ${AWS_S3_ACCESS_KEY:-}
       AWS_S3_SECRET_KEY: ${AWS_S3_SECRET_KEY:-}
       # 녹음 후처리 큐 (egress_ended → 발행). 비우면 발행 생략.
+      # 단체(MIXED) 믹스 큐 / 개인(PARTICIPANT) 음성 큐. 개인 큐 비우면 개인도 단체 큐로 발행.
       AWS_SQS_QUEUE_URL: ${AWS_SQS_QUEUE_URL:-}
+      AWS_SQS_PERSONAL_QUEUE_URL: ${AWS_SQS_PERSONAL_QUEUE_URL:-}
       # 모놀리식과 공유하는 Upstash Redis 세션 (02 §7). 반드시 채워야 기동된다.
       UPSTASH_REDIS_HOST: ${UPSTASH_REDIS_HOST:-}
       UPSTASH_REDIS_PORT: ${UPSTASH_REDIS_PORT:-6379}

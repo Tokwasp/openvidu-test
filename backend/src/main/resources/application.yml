@@ -47,9 +47,12 @@ aws:
     region: ${AWS_S3_REGION:ap-northeast-2}
     access-key: ${AWS_S3_ACCESS_KEY}
     secret-key: ${AWS_S3_SECRET_KEY}
-  # egress_ended → 이 큐로 후처리 메시지 발행 (비우면 발행 생략)
+  # egress_ended → 큐로 후처리 메시지 발행 (비우면 발행 생략)
+  # queue-url = 단체(MIXED) 믹스 큐, personal-queue-url = 개인(PARTICIPANT) 음성 큐
+  # personal-queue-url 을 비우면 개인 녹음도 단체 큐로 발행한다(하위 호환).
   sqs:
     queue-url: ${AWS_SQS_QUEUE_URL:}
+    personal-queue-url: ${AWS_SQS_PERSONAL_QUEUE_URL:}
 
 logging:
   level:
