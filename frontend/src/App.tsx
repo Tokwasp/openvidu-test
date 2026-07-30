@@ -136,8 +136,8 @@ export default function App() {
   const handleEndMeeting = async () => {
     if (!joinInfo) return;
     try {
-      await api.endMeeting(joinInfo.meetingId);
-      pushLog('회의 종료 요청(deleteRoom). 잠시 후 녹음이 MinIO 로 업로드됩니다.');
+      await api.endMeeting(joinInfo.roomName);
+      pushLog('회의 종료 요청(deleteRoom). 잠시 후 녹음이 S3 로 업로드됩니다.');
     } catch (e) {
       pushLog('종료 요청 오류: ' + (e as Error).message);
     }

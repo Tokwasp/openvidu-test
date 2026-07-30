@@ -27,15 +27,21 @@ async function unwrap<T>(res: Response): Promise<T> {
 }
 
 export function join(projectId: number, memberId: number, memberName: string) {
-  return fetch(`/api/projects/${projectId}/meetings/join`, {
+  // memberId/name 은 dev-auth-bypass(세션 없을 때) 용 쿼리파라미터. 실제 운영은 세션에서 읽는다.
+  // credentials:'include' 로 SESSION 쿠키를 함께 보낸다.
+  const q = new URLSearchParams({ memberId: String(memberId), memberName }).toString();
+  return fetch(`/api/projects/${projectId}/meetings/join?${q}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ memberId, memberName }),
+    credentials: 'include',
   }).then((r) => unwrap<JoinResponse>(r));
 }
 
-export function endMeeting(meetingId: number) {
-  return fetch(`/api/meetings/${meetingId}`, { method: 'DELETE' }).then((r) => unwrap<void>(r));
+// 회의 종료는 roomName 으로 (meetingId 제거됨)
+export function endMeeting(roomName: string) {
+  return fetch(`/api/meetings/${roomName}`, { method: 'DELETE', credentials: 'include' }).then((r) =>
+    unwrap<void>(r),
+  );
 }
 
 export function speechStats(meetingId: number) {
