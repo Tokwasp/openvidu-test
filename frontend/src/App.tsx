@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  LocalTrackPublication,
   Participant,
   RemoteTrack,
   RemoteTrackPublication,
@@ -80,14 +79,11 @@ export default function App() {
       ...[...room.remoteParticipants.values()].map((p) => build(p, false)),
     ];
     setParticipants(list);
-    const anyVideo = list.length > 0 &&
-      [room.localParticipant, ...room.remoteParticipants.values()].some(
-        (p) => p.getTrackPublication(Track.Source.Camera)?.isSubscribed ||
-               p.getTrackPublication(Track.Source.ScreenShare)?.isSubscribed ||
-               p.getTrackPublication(Track.Source.Camera)?.track ||
-               p.getTrackPublication(Track.Source.ScreenShare)?.track,
-      );
-    setHasVideo(!!anyVideo);
+  }, []);
+
+  // 그리드에 실제로 붙은 비디오 타일 개수로 표시 여부를 판단(가장 확실).
+  const refreshHasVideo = useCallback(() => {
+    setHasVideo((videoGridRef.current?.childElementCount ?? 0) > 0);
   }, []);
 
   const attachVideo = (track: Track | RemoteTrack, id: string, label: string) => {
@@ -98,16 +94,19 @@ export default function App() {
     tile.className = 'videoTile';
     tile.dataset.tid = id;
     const el = track.attach() as HTMLVideoElement;
+    if (id.startsWith('local-')) el.style.transform = 'scaleX(-1)';  // 자기 영상은 거울 반전
     const cap = document.createElement('span');
     cap.className = 'videoName';
     cap.textContent = label;
     tile.appendChild(el);
     tile.appendChild(cap);
     grid.appendChild(tile);
+    refreshHasVideo();
   };
 
   const detachVideo = (id: string) => {
     videoGridRef.current?.querySelector(`[data-tid="${id}"]`)?.remove();
+    refreshHasVideo();
   };
 
   const wireEvents = (room: Room) => {
@@ -122,16 +121,8 @@ export default function App() {
         track.detach().forEach((el) => el.remove());
         resync();
       })
-      .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
-        if (pub.track && pub.track.kind === Track.Kind.Video) {
-          attachVideo(pub.track, `local-${pub.trackSid}`, '나');
-        }
-        resync();
-      })
-      .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
-        detachVideo(`local-${pub.trackSid}`);
-        resync();
-      })
+      .on(RoomEvent.LocalTrackPublished, () => resync())  // 로컬 비디오는 토글에서 직접 붙인다
+      .on(RoomEvent.LocalTrackUnpublished, () => resync())
       .on(RoomEvent.ActiveSpeakersChanged, (list: Participant[]) => setSpeakers(list.map((p) => p.identity)))
       .on(RoomEvent.TrackMuted, resync)
       .on(RoomEvent.TrackUnmuted, resync)
@@ -177,15 +168,37 @@ export default function App() {
     const room = roomRef.current;
     if (!room) return;
     const next = !camOn;
-    await room.localParticipant.setCameraEnabled(next);
+    try {
+      await room.localParticipant.setCameraEnabled(next);
+    } catch (e) {
+      alert('카메라를 켤 수 없습니다 (권한 확인): ' + (e as Error).message);
+      return;
+    }
     setCamOn(next);
+    if (next) {
+      const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
+    } else {
+      detachVideo('local-cam');
+    }
   };
   const toggleScreen = async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !screenOn;
-    await room.localParticipant.setScreenShareEnabled(next);
+    try {
+      await room.localParticipant.setScreenShareEnabled(next);
+    } catch (e) {
+      alert('화면공유를 시작할 수 없습니다: ' + (e as Error).message);
+      return;
+    }
     setScreenOn(next);
+    if (next) {
+      const pub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+      if (pub?.track) attachVideo(pub.track, 'local-screen', '내 화면');
+    } else {
+      detachVideo('local-screen');
+    }
   };
 
   const cleanup = () => {
@@ -285,8 +298,8 @@ export default function App() {
       </header>
 
       <main className="stage">
-        {hasVideo && <div ref={videoGridRef} className="videoGrid" />}
-        {!hasVideo && <div ref={videoGridRef} style={{ display: 'none' }} />}
+        {/* 그리드는 항상 마운트 유지(교체하면 붙인 video 요소가 사라진다). 표시만 토글. */}
+        <div ref={videoGridRef} className="videoGrid" style={{ display: hasVideo ? 'grid' : 'none' }} />
 
         <div className={`roster ${hasVideo ? 'compact' : ''}`}>
           {participants.map((p) => {
