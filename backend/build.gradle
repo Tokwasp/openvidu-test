@@ -32,6 +32,10 @@ dependencies {
     // 빠지면 WebhookReceiver 로딩 시 NoClassDefFoundError 로 백엔드가 기동 실패한다.
     implementation 'com.google.protobuf:protobuf-java:3.25.5'
 
+    // egress_ended 웹훅에서 녹음 후처리 메시지를 SQS 로 발행 (S3→SQS→워커)
+    implementation platform('software.amazon.awssdk:bom:2.31.0')
+    implementation 'software.amazon.awssdk:sqs'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 

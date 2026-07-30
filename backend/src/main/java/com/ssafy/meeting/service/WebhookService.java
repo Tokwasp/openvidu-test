@@ -12,10 +12,10 @@ import org.springframework.stereotype.Service;
  *   room_started       → 전체 믹스 Egress 시작 (첫 참가자일 때 한 번)
  *   participant_joined → 사람별 Egress 시작
  *   room_finished      → Redis 방 상태 닫기 (유일한 닫는 경로, 멱등)
- *   egress_ended       → 로그만 (파일은 우리 S3 에 있음. 조회/후처리는 S3 이벤트→SQS→Lambda 로)
+ *   egress_ended       → 후처리 메시지를 SQS 로 발행 (워커/Lambda 가 VAD→발화시간→RDS)
  *
- * 녹음 메타데이터는 저장하지 않는다 — 파일 경로가 곧 정보다
- * (meetings/{roomName}/{memberId}/{time}.ogg). 조회는 스토리지를 나열해 만든다.
+ * 녹음 메타데이터는 DB 에 저장하지 않는다 — 파일 경로가 곧 정보다
+ * (meetings/{roomName}/{memberId}/{time}.ogg). SQS 메시지에 roomName·memberId·kind 를 담아 보낸다.
  */
 @Slf4j
 @Service
@@ -24,6 +24,7 @@ public class WebhookService {
 
     private final RoomRegistry roomRegistry;
     private final EgressService egressService;
+    private final RecordingEventPublisher recordingEventPublisher;
 
     public void handle(LivekitWebhook.WebhookEvent event) {
         String type = event.getEvent();
@@ -63,18 +64,48 @@ public class WebhookService {
         roomRegistry.closeByRoom(room.getName());
     }
 
-    /** 파일은 스토리지에 이미 있다. 지금은 로그만. (조회는 3단계 S3 나열로) */
+    /**
+     * 녹음 한 건이 S3 에 올라감 → 후처리 메시지를 SQS 로 발행한다.
+     * 실패/파일 없음이면 발행하지 않는다(처리할 파일이 없음).
+     */
     private void onEgressEnded(LivekitEgress.EgressInfo info) {
-        if (info == null) {
+        if (info == null || info.getFileResultsCount() == 0) {
+            log.warn("[Webhook] egress_ended 파일 없음 egressId={}",
+                    info == null ? "?" : info.getEgressId());
             return;
         }
-        if (info.getFileResultsCount() > 0) {
-            log.info("[Webhook] egress_ended egressId={} key={}",
-                    info.getEgressId(), info.getFileResults(0).getFilename());
-        } else {
-            log.warn("[Webhook] egress_ended 파일 없음 egressId={} status={}",
-                    info.getEgressId(), info.getStatus());
+        String objectKey = info.getFileResults(0).getFilename();
+        String roomName = info.getRoomName();
+        boolean mixed = isMixed(objectKey);
+        Integer memberId = mixed ? null : parseMemberFromKey(objectKey);
+
+        recordingEventPublisher.publish(new RecordingEvent(
+                roomName,
+                memberId,
+                mixed ? "MIXED" : "PARTICIPANT",
+                objectKey,
+                info.getEgressId(),
+                java.time.LocalDateTime.now().toString()));
+    }
+
+    /** objectKey = meetings/{roomName}/mixed/... 이면 전체 믹스. */
+    private boolean isMixed(String objectKey) {
+        String seg = pathSegment(objectKey, 2);
+        return "mixed".equals(seg);
+    }
+
+    /** meetings/{roomName}/{memberId}/... 에서 memberId 를 뽑는다. */
+    private Integer parseMemberFromKey(String objectKey) {
+        return parseMemberId(pathSegment(objectKey, 2));
+    }
+
+    /** '/' 로 나눈 n번째 세그먼트(없으면 null). */
+    private String pathSegment(String objectKey, int index) {
+        if (objectKey == null) {
+            return null;
         }
+        String[] parts = objectKey.split("/");
+        return index < parts.length ? parts[index] : null;
     }
 
     private boolean isOurRoom(String roomName) {
