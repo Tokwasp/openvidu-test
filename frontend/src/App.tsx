@@ -140,7 +140,9 @@ export default function App() {
       setJoinInfo(info);
       pushLog(`참여: room=${info.roomName.slice(0, 8)}… (${info.created ? '새 회의 생성' : '기존 회의 입장'})`);
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      // adaptiveStream/dynacast 는 "보이는 요소만 구독/송출"이라 소규모 회의에서
+      // 늦게 들어온 사람이 상대 카메라를 못 보는 문제를 만든다 → 끈다(항상 구독/송출).
+      const room = new Room({ adaptiveStream: false, dynacast: false });
       roomRef.current = room;
       wireEvents(room);
       await room.connect(info.livekitUrl, info.token);
