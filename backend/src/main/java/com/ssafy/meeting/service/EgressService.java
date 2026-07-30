@@ -33,9 +33,15 @@ public class EgressService {
         LivekitEgress.EncodedFileOutput file =
                 oggFileOutput("meetings/{room_name}/{publisher_identity}/{time}.ogg");
         EncodedOutputs outputs = new EncodedOutputs(file, null, null, null);
+        // ⚠️ OGG(오디오 전용) 출력엔 인코딩 옵션(프리셋/advanced)을 주면 비디오 코덱을 요구해
+        //    "no supported codec is compatible with all outputs" 400 이 난다.
+        //    믹스 egress 처럼 preset·advanced 를 모두 null 로 두면 옵션이 안 붙어 오디오 전용이 된다.
         try {
             Response<LivekitEgress.EgressInfo> res = egressClient
-                    .startParticipantEgress(roomName, String.valueOf(memberId), outputs)
+                    .startParticipantEgress(roomName, String.valueOf(memberId), outputs,
+                            false,
+                            (LivekitEgress.EncodingOptionsPreset) null,
+                            (LivekitEgress.EncodingOptions) null)
                     .execute();
             LivekitEgress.EgressInfo info = requireBody(res, "participant egress");
             log.info("[Egress] participant 시작 room={} member={} egressId={}",
