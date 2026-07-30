@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
  *   room_started       → 전체 믹스 Egress 시작 (첫 참가자일 때 한 번)
  *   participant_joined → 사람별 Egress 시작
  *   room_finished      → Redis 방 상태 닫기 (유일한 닫는 경로, 멱등)
- *   egress_ended       → 로그만 (파일은 S3/MinIO 에 있음. 조회는 3단계에서 S3 나열로 구현)
+ *   egress_ended       → 로그만 (파일은 우리 S3 에 있음. 조회/후처리는 S3 이벤트→SQS→Lambda 로)
  *
  * 녹음 메타데이터는 저장하지 않는다 — 파일 경로가 곧 정보다
  * (meetings/{roomName}/{memberId}/{time}.ogg). 조회는 스토리지를 나열해 만든다.

@@ -1,7 +1,7 @@
 # OpenVidu3(LiveKit) 기반 회의 데모 — 백/프/미디어 스택 한 방에.
 #   docker compose up --build   후 http://localhost:8081 접속.
 #
-# 흐름: 프론트(8081) → 백엔드(8080) → LiveKit(7880) ─┬─ Egress ─→ MinIO(9000)
+# 흐름: 프론트(8081) → 백엔드(8080) → LiveKit(7880) ─┬─ Egress ─→ AWS S3
 #                                                     └─ webhook → 백엔드
 name: openvidu3-meeting
 
@@ -12,36 +12,7 @@ services:
     restart: unless-stopped
 
   # MySQL 제거됨 — 방 상태는 Redis(Upstash), 세션도 Redis. 회원 식별은 세션에서.
-
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-    ports:
-      # 외부 노출 금지. 콘솔은 SSH 터널로 본다: ssh -L 9001:127.0.0.1:9001 (DEPLOY.md §6)
-      - "127.0.0.1:9000:9000"   # S3 API — 녹음 확인용
-      - "127.0.0.1:9001:9001"   # 웹 콘솔 — 브라우저로 파일이 쌓이는지 눈으로 확인
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    restart: unless-stopped
-
-  # 스크래치 버킷 생성(한 번만 실행되고 종료)
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin} &&
-      mc mb -p local/${MINIO_BUCKET:-recordings} || true &&
-      echo 'bucket ready';
-      "
+  # MinIO 제거됨 — 녹음은 Egress 가 우리 AWS S3 에 직접 업로드한다(.env 의 AWS_S3_*).
 
   # ── OpenVidu3(LiveKit) 미디어 서버 + Egress ──────
   livekit:
@@ -81,10 +52,11 @@ services:
       LIVEKIT_HOST: http://livekit:7880
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secretsecretsecretsecret}
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      MINIO_BUCKET: ${MINIO_BUCKET:-recordings}
+      # 녹음 저장 = 우리 AWS S3 (Egress 가 직접 업로드). 반드시 채운다.
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_S3_REGION: ${AWS_S3_REGION:-ap-northeast-2}
+      AWS_S3_ACCESS_KEY: ${AWS_S3_ACCESS_KEY:-}
+      AWS_S3_SECRET_KEY: ${AWS_S3_SECRET_KEY:-}
       # 모놀리식과 공유하는 Upstash Redis 세션 (02 §7). 반드시 채워야 기동된다.
       UPSTASH_REDIS_HOST: ${UPSTASH_REDIS_HOST:-}
       UPSTASH_REDIS_PORT: ${UPSTASH_REDIS_PORT:-6379}
@@ -95,8 +67,6 @@ services:
     depends_on:
       livekit:
         condition: service_started
-      minio:
-        condition: service_healthy
     restart: unless-stopped
 
   frontend:

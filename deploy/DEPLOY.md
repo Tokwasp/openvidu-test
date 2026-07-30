@@ -96,20 +96,31 @@ cp .env.example .env
 `.env` 를 아래처럼 수정:
 
 ```dotenv
-# 브라우저가 붙는 주소 — 반드시 wss:// + /rtc (caddy 가 /rtc 를 LiveKit 으로 넘긴다)
-LIVEKIT_WS_URL=wss://i15d205.p.ssafy.io/rtc
+# 브라우저가 붙는 주소 — 반드시 wss://<도메인>  (뒤에 /rtc 안 붙임! 클라이언트가 자동으로 붙인다)
+LIVEKIT_WS_URL=wss://i15d205.p.ssafy.io
 
-# 도메인 HTTPS (caddy 프로필)
+# (caddy 프로필 쓸 때만) 도메인 HTTPS
 DOMAIN=i15d205.p.ssafy.io
 ACME_EMAIL=본인이메일@example.com
 
 LIVEKIT_API_KEY=<3-1 의 key>
 LIVEKIT_API_SECRET=<3-1 의 secret>
 
-MINIO_ACCESS_KEY=<임의의 값으로 교체>
-MINIO_SECRET_KEY=<임의의 값으로 교체>
-MINIO_BUCKET=recordings
+# 세션·방 상태 = 모놀리식과 공유하는 Upstash Redis (없으면 백엔드 기동 실패)
+UPSTASH_REDIS_HOST=<xxxx.upstash.io>
+UPSTASH_REDIS_PORT=6379
+UPSTASH_REDIS_PASSWORD=<upstash 비번>
+UPSTASH_REDIS_SSL=true
+
+# 녹음 저장 = 우리 AWS S3 (Egress 가 직접 업로드)
+AWS_S3_BUCKET=<버킷명>
+AWS_S3_REGION=ap-northeast-2
+AWS_S3_ACCESS_KEY=<IAM 액세스 키>
+AWS_S3_SECRET_KEY=<IAM 시크릿>
 ```
+
+> 이제 **MySQL·MinIO 컨테이너는 없다.** 방 상태·세션은 Upstash, 녹음은 AWS S3.
+> LiveKit/Egress 만 로컬 redis 를 메시지 버스로 쓴다.
 
 ### 3-3. `infra/livekit/livekit.yaml` 수정
 
@@ -166,17 +177,11 @@ bash deploy/setup-firewall.sh
 ```
 
 여는 포트: `22, 80, 443, 7881/tcp, 50000-50060/udp`.
-나머지(8080·8081·7880·3306·9000·9001)는 `docker-compose.yml` 에서 `127.0.0.1` 에
-묶여 있어 UFW 로 굳이 막지 않아도 외부에서 안 보인다.
+나머지(8080·8081·7880)는 `docker-compose.yml` 에서 `127.0.0.1` 에
+묶여 있어 UFW 로 굳이 막지 않아도 외부에서 안 보인다. (MySQL·MinIO 는 이제 없음)
 
 > **SSH가 22번이 아니면** 스크립트의 `allow 22/tcp` 를 본인 포트로 바꾸고 실행한다.
 > 안 그러면 `ufw enable` 순간 SSH가 끊긴다.
-
-MinIO 콘솔 확인은 SSH 터널로:
-```bash
-ssh -L 9001:127.0.0.1:9001 ubuntu@<EC2-IP>
-# 이후 로컬 브라우저에서 http://localhost:9001
-```
 
 ---
 
