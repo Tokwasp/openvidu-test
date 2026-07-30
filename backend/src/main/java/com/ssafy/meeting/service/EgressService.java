@@ -1,6 +1,6 @@
 package com.ssafy.meeting.service;
 
-import com.ssafy.meeting.config.MinioProperties;
+import com.ssafy.meeting.config.S3Properties;
 import io.livekit.server.EgressServiceClient;
 import io.livekit.server.EncodedOutputs;
 import livekit.LivekitEgress;
@@ -16,7 +16,7 @@ import retrofit2.Response;
  *   participant_joined → startParticipantEgress(identity, OGG) // 사람별
  * "멈추는 코드"는 없다 — 사람이 나가거나 방이 끝나면 Egress가 자동 종료된다.
  *
- * 파일 목적지는 요청마다 S3Upload(=MinIO 주소)로 함께 넘긴다. (04 §5-3 "output이 곧 설정")
+ * 파일 목적지는 요청마다 S3Upload(=우리 AWS S3)로 함께 넘긴다. (04 §5-3 "output이 곧 설정")
  *
  * SDK: io.livekit:livekit-server:0.8.1. Egress 관련 호출을 이 클래스에 격리했다.
  */
@@ -26,7 +26,7 @@ import retrofit2.Response;
 public class EgressService {
 
     private final EgressServiceClient egressClient;
-    private final MinioProperties minio;
+    private final S3Properties s3;
 
     /** 사람별 Participant Egress → meetings/{room}/{identity}/{time}.ogg */
     public String startParticipantEgress(String roomName, int memberId) {
@@ -73,18 +73,20 @@ public class EgressService {
         return LivekitEgress.EncodedFileOutput.newBuilder()
                 .setFileType(LivekitEgress.EncodedFileType.OGG) // 오디오 전용 컨테이너
                 .setFilepath(filepath)
-                .setS3(minioUpload())
+                .setS3(s3Upload())
                 .build();
     }
 
-    private LivekitEgress.S3Upload minioUpload() {
+    /**
+     * AWS S3 업로드. MinIO 와 달리 endpoint 를 비우면 AWS 기본 엔드포인트를 쓰고,
+     * forcePathStyle 도 끈다(AWS 는 virtual-hosted 스타일).
+     */
+    private LivekitEgress.S3Upload s3Upload() {
         return LivekitEgress.S3Upload.newBuilder()
-                .setAccessKey(minio.accessKey())
-                .setSecret(minio.secretKey())
-                .setBucket(minio.bucket())
-                .setEndpoint(minio.endpoint())   // http://minio:9000
-                .setRegion(minio.region())
-                .setForcePathStyle(true)         // MinIO는 path-style 필수
+                .setAccessKey(s3.accessKey())
+                .setSecret(s3.secretKey())
+                .setBucket(s3.bucket())
+                .setRegion(s3.region())
                 .build();
     }
 

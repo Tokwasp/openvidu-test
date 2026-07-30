@@ -35,13 +35,13 @@ livekit:
   empty-timeout-sec: 120
   departure-timeout-sec: 20
 
-# ── MinIO(스크래치) — Egress 출력 목적지이자 워커의 읽기/삭제 대상 ──
-minio:
-  endpoint: ${MINIO_ENDPOINT:http://minio:9000}
-  access-key: ${MINIO_ACCESS_KEY:minioadmin}
-  secret-key: ${MINIO_SECRET_KEY:minioadmin}
-  bucket: ${MINIO_BUCKET:recordings}
-  region: ${MINIO_REGION:us-east-1}
+# ── 녹음 저장: 우리 AWS S3 (docs §8) — Egress 가 요청마다 직접 업로드 ──
+aws:
+  s3:
+    bucket: ${AWS_S3_BUCKET}
+    region: ${AWS_S3_REGION:ap-northeast-2}
+    access-key: ${AWS_S3_ACCESS_KEY}
+    secret-key: ${AWS_S3_SECRET_KEY}
 
 logging:
   level:
