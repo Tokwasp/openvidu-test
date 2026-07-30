@@ -2,7 +2,6 @@ package com.ssafy.meeting.service;
 
 import com.ssafy.meeting.config.S3Properties;
 import io.livekit.server.EgressServiceClient;
-import io.livekit.server.EncodedOutputs;
 import livekit.LivekitEgress;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +12,7 @@ import retrofit2.Response;
  * 녹음 시작 = Egress 시작 (03-recording.md §6-1, 04-egress.md §5-3).
  * 백엔드가 하는 일은 딱 두 줄:
  *   room_started       → startRoomCompositeEgress(audioOnly)   // 전체 믹스
- *   participant_joined → startParticipantEgress(identity, OGG) // 사람별
+ *   track_published    → startTrackEgress(audio track SID, OGG) // 사람별 마이크 1트랙
  * "멈추는 코드"는 없다 — 사람이 나가거나 방이 끝나면 Egress가 자동 종료된다.
  *
  * 파일 목적지는 요청마다 S3Upload(=우리 AWS S3)로 함께 넘긴다. (04 §5-3 "output이 곧 설정")
@@ -28,27 +27,31 @@ public class EgressService {
     private final EgressServiceClient egressClient;
     private final S3Properties s3;
 
-    /** 사람별 Participant Egress → meetings/{room}/{identity}/{time}.ogg */
-    public String startParticipantEgress(String roomName, int memberId) {
-        LivekitEgress.EncodedFileOutput file =
-                oggFileOutput("meetings/{room_name}/{publisher_identity}/{time}.ogg");
-        EncodedOutputs outputs = new EncodedOutputs(file, null, null, null);
-        // ⚠️ OGG(오디오 전용) 출력엔 인코딩 옵션(프리셋/advanced)을 주면 비디오 코덱을 요구해
-        //    "no supported codec is compatible with all outputs" 400 이 난다.
-        //    믹스 egress 처럼 preset·advanced 를 모두 null 로 두면 옵션이 안 붙어 오디오 전용이 된다.
+    /**
+     * 사람별 오디오 Track Egress(마이크 1트랙만 직접 저장) → meetings/{room}/{memberId}/{time}.ogg
+     *
+     * <p>왜 Participant Egress 가 아니라 Track Egress 인가:
+     * Participant Egress 는 그 사람의 <b>오디오+비디오를 함께</b> 녹화하려 하는데, 출력이
+     * OGG(오디오 전용 컨테이너)라 비디오 트랙을 담을 코덱이 없어 LiveKit 이
+     * "no supported codec is compatible with all outputs" 로 <b>400</b> 을 냈다.
+     * 마이크 한 트랙만 저장하려면 오디오 트랙 SID 를 지정하는 Track Egress 를 쓴다.
+     * Track Egress 는 무변환(passthrough) — OPUS 를 그대로 OGG 로 떨어뜨려 코덱 충돌이 없다.
+     */
+    public String startAudioTrackEgress(String roomName, int memberId, String trackId) {
+        LivekitEgress.DirectFileOutput file = LivekitEgress.DirectFileOutput.newBuilder()
+                .setFilepath("meetings/{room_name}/" + memberId + "/{time}.ogg")
+                .setS3(s3Upload())
+                .build();
         try {
             Response<LivekitEgress.EgressInfo> res = egressClient
-                    .startParticipantEgress(roomName, String.valueOf(memberId), outputs,
-                            false,
-                            (LivekitEgress.EncodingOptionsPreset) null,
-                            (LivekitEgress.EncodingOptions) null)
+                    .startTrackEgress(roomName, file, trackId)
                     .execute();
-            LivekitEgress.EgressInfo info = requireBody(res, "participant egress");
-            log.info("[Egress] participant 시작 room={} member={} egressId={}",
-                    roomName, memberId, info.getEgressId());
+            LivekitEgress.EgressInfo info = requireBody(res, "track egress");
+            log.info("[Egress] track(오디오) 시작 room={} member={} track={} egressId={}",
+                    roomName, memberId, trackId, info.getEgressId());
             return info.getEgressId();
         } catch (Exception e) {
-            throw new IllegalStateException("participant egress 시작 실패: " + e.getMessage(), e);
+            throw new IllegalStateException("track egress 시작 실패: " + e.getMessage(), e);
         }
     }
 

@@ -78,7 +78,7 @@ public class WebhookService {
             return; // 이미 이 회의에서 이 사람 개인 Egress 를 시작함
         }
         try {
-            egressService.startParticipantEgress(room.getName(), memberId);
+            egressService.startAudioTrackEgress(room.getName(), memberId, track.getSid());
         } catch (RuntimeException e) {
             startedParticipantEgress.remove(key); // 실패 → 다음 발행 때 재시도 가능하도록
             log.warn("[Egress] participant 시작 실패(재시도 가능) member={}: {}", memberId, e.getMessage());
