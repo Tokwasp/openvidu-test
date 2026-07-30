@@ -50,9 +50,22 @@ docker compose up --build
 - 여러 명을 흉내내려면 **다른 브라우저/시크릿 탭**에서 `memberId`·이름만 바꿔 같은 `projectId(=5)`로 참여하세요.
 
 ### EC2에 올릴 때
-- `.env`의 `LIVEKIT_WS_URL`을 `ws://<EC2 공인 IP>:7880`으로 바꿉니다(브라우저가 직접 붙는 주소라 반드시 공인망 주소여야 함).
-- 보안그룹에서 `8081, 7880(tcp), 7881(tcp), 50000-50060(udp)`를 엽니다.
-- 실서비스라면 `livekit.yaml`의 `use_external_ip: true`와 TLS(wss) 적용을 권장합니다.
+
+> 브라우저는 `http://IP` 에서는 마이크·화면공유를 막는다(보안 컨텍스트 필요). 접속은 아래 두 방식 중 하나.
+
+**A. 혼자 테스트 (SSH 터널, 추가 세팅 없음)**
+- `.env`의 `LIVEKIT_WS_URL`을 `ws://<EC2 공인 IP>:7880`으로.
+- `infra/livekit/livekit.yaml`의 `use_external_ip: true`.
+- 보안그룹에서 `7880(tcp), 7881(tcp), 50000-50060(udp)` 개방.
+- 노트북에서 `ssh -L 8081:localhost:8081 ec2-user@<IP>` 후 `http://localhost:8081` 접속.
+
+**B. 도메인으로 여러 명 접속 (HTTPS, caddy)**
+1. DNS A레코드로 도메인 → EC2 공인 IP 연결.
+2. 보안그룹에 **80, 443**(그리고 미디어용 `50000-50060/udp`, 폴백 `7881/tcp`) 개방.
+3. `.env`에 `DOMAIN`, `ACME_EMAIL` 채우고 `LIVEKIT_WS_URL=wss://<도메인>/rtc` 로 변경.
+4. `docker compose --profile proxy up -d --build` — caddy가 Let's Encrypt 인증서를 자동 발급하고 `https://<도메인>` 하나로 UI(+/api)와 `wss://.../rtc`(LiveKit 신호)를 서빙한다. 미디어(UDP)는 caddy를 거치지 않고 EC2로 직접 흐른다.
+
+> 작은 인스턴스(메모리 빠듯)면 스왑 2GB 정도 잡아두면 mysql/egress가 안정적이다.
 
 ---
 

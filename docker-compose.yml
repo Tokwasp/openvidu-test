@@ -13,18 +13,26 @@ services:
 
   mysql:
     image: mysql:8.0
+    # 작은 EC2(메모리 빠듯)에서도 뜨도록 메모리 사용을 줄인다
+    command: >
+      --innodb-buffer-pool-size=64M
+      --performance-schema=OFF
+      --innodb-flush-method=O_DIRECT
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: meeting
       MYSQL_USER: meeting
       MYSQL_PASSWORD: meeting
+    volumes:
+      - mysql-data:/var/lib/mysql   # 익명 볼륨 대신 관리되는 named 볼륨
     ports:
       - "3306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
+      start_period: 60s             # 첫 초기화 동안 healthcheck 실패로 안 죽게 여유
     restart: unless-stopped
 
   minio:
@@ -116,7 +124,37 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8081:80"
+      - "8081:80"                    # 직접 접근용(http). 도메인 접속은 caddy(443)로.
     depends_on:
       - backend
     restart: unless-stopped
+
+  # ── HTTPS 리버스 프록시 (도메인 접속용) ─────────────
+  # foodshare.click 같은 도메인으로 접속할 때만 사용.
+  #   - Let's Encrypt 인증서 자동 발급/갱신
+  #   - https://DOMAIN            → 프론트(UI + /api)
+  #   - wss://DOMAIN/rtc          → LiveKit 시그널(신호)
+  # 미디어(UDP)는 caddy를 거치지 않고 EC2로 직접 흐른다.
+  # DOMAIN 이 비어 있으면(로컬/IP 테스트) 이 서비스는 caddy 프로필로 꺼둘 수 있다.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]              # 도메인 접속 시에만: docker compose --profile proxy up -d
+    environment:
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - livekit
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:

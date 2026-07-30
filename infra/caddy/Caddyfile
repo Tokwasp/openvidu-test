@@ -1,0 +1,18 @@
+# 도메인 접속용 HTTPS 리버스 프록시 (04·05 접속 경로)
+# DOMAIN / ACME_EMAIL 은 .env 에서 주입된다.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# LiveKit 신호(WebSocket). livekit-client 는 wss://DOMAIN/rtc 로 접속한다.
+	# 미디어(소리/영상)는 UDP 라 여기를 거치지 않고 EC2 로 직접 흐른다.
+	handle /rtc* {
+		reverse_proxy livekit:7880
+	}
+
+	# 그 외 전부 프론트로. (프론트 nginx 가 /api 를 backend 로 프록시)
+	handle {
+		reverse_proxy frontend:80
+	}
+}
