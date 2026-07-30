@@ -66,7 +66,7 @@ curl -i https://i15d205.p.ssafy.io/rtc/validate   # LiveKit 응답(426/200 계�
 | --- | --- | --- | --- |
 | 1 | **`ws://` 혼합 콘텐츠 차단** | HTTPS 페이지는 `ws://`(평문) 연결을 브라우저가 막는다. `.env` 기본값이 `LIVEKIT_WS_URL=ws://localhost:7880` 이다 | LiveKit 을 nginx 로 감싸 `wss://` 로 바꾼다 (§4, §5) |
 | 2 | **Docker 가 UFW 를 우회** | 도커는 iptables 를 직접 건드려, `3306:3306` 같은 매핑을 UFW 로 막아도 외부에서 접속된다 | 내부 포트를 `127.0.0.1` 에 바인딩(이미 `docker-compose.yml` 수정됨) + UFW (§6) |
-| 3 | **LiveKit `use_external_ip: false`** | EC2 는 NAT 뒤라 사설IP만 보여, 브라우저에 잘못된 미디어 주소를 알려준다 | `livekit.yaml` 에서 `true` 로 (§3) |
+| 3 | **LiveKit `use_external_ip: false`** | EC2 는 (퍼블릭 인스턴스라도) 공인 IP 가 NIC 에 직접 붙지 않고 AWS 가 공인↔사설을 1:1 매핑한다. NIC 엔 사설IP(172.31.x.x)만 보여 LiveKit 이 브라우저에 사설IP 를 알려준다 | `livekit.yaml` 에서 `true` 로 → STUN 으로 공인IP 자동 감지 (§3) |
 | 4 | **데모 키 그대로** | `devkey` / `secretsecret...` 는 공개된 값이라 누구나 방에 입장·녹음 가능 | 실제 키로 교체 (§3) |
 | 5 | **미디어 UDP/TCP 포트** | 시그널링만 nginx 로 가고, 실제 오디오는 UDP 50000-50060 / TCP 7881 로 직접 흐른다 | 이 포트만 UFW 로 연다 (§6) |
 
@@ -159,7 +159,9 @@ rtc:
   tcp_port: 7881
   port_range_start: 50000
   port_range_end: 50060
-  use_external_ip: true        # ← false 에서 변경 (EC2 필수)
+  use_external_ip: true        # ← false 에서 변경. 퍼블릭 EC2 라도 공인IP 가
+                               #    NIC 에 없어 STUN 으로 공인IP 를 찾아 알려줘야 한다.
+                               #    (고정 EIP 면 대신 node_ip: <공인IP> 로 못박아도 됨)
 
 keys:
   <key>: <secret>              # ← 3-1 값으로 교체 (devkey 삭제)
