@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LocalTrackPublication,
   Participant,
@@ -9,92 +9,159 @@ import {
   Track,
 } from 'livekit-client';
 import * as api from './api';
-import type { JoinResponse, SpeechStats } from './api';
+import type { JoinResponse } from './api';
 
-type Phase = 'lobby' | 'room' | 'stats';
+type Phase = 'lobby' | 'room' | 'ended';
+
+interface PInfo {
+  identity: string;
+  name: string;
+  isLocal: boolean;
+  micOn: boolean;
+}
+
+const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+function colorFor(identity: string) {
+  let h = 0;
+  for (const c of identity) h = (h * 31 + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
+}
+
+function initials(name: string) {
+  const t = name.trim();
+  return t ? t.slice(0, 2) : '?';
+}
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>('lobby');
 
-  // 로비 입력값
+  // 로비 입력값 (dev-auth-bypass 용 — 운영에선 세션이 회원을 식별)
   const [projectId, setProjectId] = useState(5);
   const [memberId, setMemberId] = useState(7);
   const [memberName, setMemberName] = useState('김경현');
+  const [joining, setJoining] = useState(false);
 
-  // 세션 상태
+  // 회의 상태
   const [joinInfo, setJoinInfo] = useState<JoinResponse | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(false);
   const [screenOn, setScreenOn] = useState(false);
+  const [participants, setParticipants] = useState<PInfo[]>([]);
   const [speakers, setSpeakers] = useState<string[]>([]);
+  const [hasVideo, setHasVideo] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<string[]>([]);
-
-  // 결과
-  const [stats, setStats] = useState<SpeechStats | null>(null);
-  const [advice, setAdvice] = useState<string>('');
+  const [elapsed, setElapsed] = useState(0);
 
   const roomRef = useRef<Room | null>(null);
-  const localMediaRef = useRef<HTMLDivElement | null>(null);
-  const remoteMediaRef = useRef<HTMLDivElement | null>(null);
+  const videoGridRef = useRef<HTMLDivElement | null>(null);
+  const startedAtRef = useRef<number>(0);
 
   const pushLog = useCallback((line: string) => {
-    setLog((prev) => [`${new Date().toLocaleTimeString()}  ${line}`, ...prev].slice(0, 40));
+    setLog((prev) => [`${new Date().toLocaleTimeString()}  ${line}`, ...prev].slice(0, 60));
   }, []);
+
+  // 경과 시간 타이머
+  useEffect(() => {
+    if (phase !== 'room') return;
+    startedAtRef.current = Date.now();
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  const syncParticipants = useCallback((room: Room) => {
+    const build = (p: Participant, isLocal: boolean): PInfo => {
+      const micPub = p.getTrackPublication(Track.Source.Microphone);
+      return { identity: p.identity, name: p.name || p.identity, isLocal, micOn: micPub ? !micPub.isMuted : false };
+    };
+    const list = [
+      build(room.localParticipant, true),
+      ...[...room.remoteParticipants.values()].map((p) => build(p, false)),
+    ];
+    setParticipants(list);
+    const anyVideo = list.length > 0 &&
+      [room.localParticipant, ...room.remoteParticipants.values()].some(
+        (p) => p.getTrackPublication(Track.Source.Camera)?.isSubscribed ||
+               p.getTrackPublication(Track.Source.ScreenShare)?.isSubscribed ||
+               p.getTrackPublication(Track.Source.Camera)?.track ||
+               p.getTrackPublication(Track.Source.ScreenShare)?.track,
+      );
+    setHasVideo(!!anyVideo);
+  }, []);
+
+  const attachVideo = (track: Track | RemoteTrack, id: string, label: string) => {
+    const grid = videoGridRef.current;
+    if (!grid || track.kind !== Track.Kind.Video) return;
+    if (grid.querySelector(`[data-tid="${id}"]`)) return;
+    const tile = document.createElement('div');
+    tile.className = 'videoTile';
+    tile.dataset.tid = id;
+    const el = track.attach() as HTMLVideoElement;
+    const cap = document.createElement('span');
+    cap.className = 'videoName';
+    cap.textContent = label;
+    tile.appendChild(el);
+    tile.appendChild(cap);
+    grid.appendChild(tile);
+  };
+
+  const detachVideo = (id: string) => {
+    videoGridRef.current?.querySelector(`[data-tid="${id}"]`)?.remove();
+  };
+
+  const wireEvents = (room: Room) => {
+    const resync = () => syncParticipants(room);
+    room
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: Participant) => {
+        if (track.kind === Track.Kind.Video) attachVideo(track, `${p.identity}-${track.sid}`, p.name || p.identity);
+        resync();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: Participant) => {
+        detachVideo(`${p.identity}-${track.sid}`);
+        track.detach().forEach((el) => el.remove());
+        resync();
+      })
+      .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
+        if (pub.track && pub.track.kind === Track.Kind.Video) {
+          attachVideo(pub.track, `local-${pub.trackSid}`, '나');
+        }
+        resync();
+      })
+      .on(RoomEvent.LocalTrackUnpublished, (pub: LocalTrackPublication) => {
+        detachVideo(`local-${pub.trackSid}`);
+        resync();
+      })
+      .on(RoomEvent.ActiveSpeakersChanged, (list: Participant[]) => setSpeakers(list.map((p) => p.identity)))
+      .on(RoomEvent.TrackMuted, resync)
+      .on(RoomEvent.TrackUnmuted, resync)
+      .on(RoomEvent.ParticipantConnected, (p) => { pushLog(`입장: ${p.name || p.identity}`); resync(); })
+      .on(RoomEvent.ParticipantDisconnected, (p) => { pushLog(`퇴장: ${p.name || p.identity}`); resync(); })
+      .on(RoomEvent.Disconnected, () => pushLog('연결 종료됨'));
+  };
 
   // ── 참여 ──────────────────────────────────────
   const handleJoin = async () => {
+    if (joining) return;
+    setJoining(true);
     try {
       const info = await api.join(projectId, memberId, memberName);
       setJoinInfo(info);
-      pushLog(`참여 응답: room=${info.roomName.slice(0, 8)}… created=${info.created}`);
+      pushLog(`참여: room=${info.roomName.slice(0, 8)}… (${info.created ? '새 회의 생성' : '기존 회의 입장'})`);
 
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
       wireEvents(room);
-
       await room.connect(info.livekitUrl, info.token);
-      pushLog(`LiveKit 연결됨 (${info.livekitUrl})`);
-
       await room.localParticipant.setMicrophoneEnabled(true);
       setMicOn(true);
+      syncParticipants(room);
       setPhase('room');
     } catch (e) {
       alert('참여 실패: ' + (e as Error).message);
+    } finally {
+      setJoining(false);
     }
-  };
-
-  const wireEvents = (room: Room) => {
-    room
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: Participant) => {
-        pushLog(`구독: ${p.identity} 의 ${track.kind}`);
-        attach(track, remoteMediaRef.current, `${p.identity}-${track.sid}`);
-      })
-      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-        track.detach().forEach((el) => el.remove());
-      })
-      .on(RoomEvent.LocalTrackPublished, (pub: LocalTrackPublication) => {
-        if (pub.track && pub.track.kind === Track.Kind.Video) {
-          attach(pub.track, localMediaRef.current, `local-${pub.trackSid}`);
-        }
-      })
-      .on(RoomEvent.ActiveSpeakersChanged, (list: Participant[]) => {
-        setSpeakers(list.map((p) => p.identity));
-      })
-      .on(RoomEvent.ParticipantConnected, (p) => pushLog(`입장: ${p.identity}`))
-      .on(RoomEvent.ParticipantDisconnected, (p) => pushLog(`퇴장: ${p.identity}`))
-      .on(RoomEvent.Disconnected, () => pushLog('연결 종료됨'));
-  };
-
-  const attach = (track: Track | RemoteTrack, container: HTMLElement | null, id: string) => {
-    if (!container) return;
-    const el = track.attach();
-    el.id = id;
-    if (track.kind === Track.Kind.Video) {
-      (el as HTMLVideoElement).style.width = '240px';
-      (el as HTMLVideoElement).style.borderRadius = '8px';
-      (el as HTMLVideoElement).style.background = '#000';
-    }
-    container.appendChild(el);
   };
 
   // ── 컨트롤 ────────────────────────────────────
@@ -104,147 +171,161 @@ export default function App() {
     const next = !micOn;
     await room.localParticipant.setMicrophoneEnabled(next);
     setMicOn(next);
-    pushLog(`마이크 ${next ? '켜짐' : '음소거'} (Participant Egress 는 파일 안 나뉨)`);
+    syncParticipants(room);
   };
-
   const toggleCam = async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !camOn;
     await room.localParticipant.setCameraEnabled(next);
     setCamOn(next);
-    pushLog(`카메라 ${next ? '켜짐' : '꺼짐'}`);
   };
-
   const toggleScreen = async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !screenOn;
     await room.localParticipant.setScreenShareEnabled(next);
     setScreenOn(next);
-    pushLog(`화면공유 ${next ? '시작' : '중지'}`);
   };
 
-  // 나가기: 내 연결만 끊는다(다른 사람은 계속). 마지막 사람이 나가면 timeout 후 room_finished.
-  const handleLeave = async () => {
-    await roomRef.current?.disconnect();
+  const cleanup = () => {
+    roomRef.current?.disconnect();
     roomRef.current = null;
-    await loadStats();
+    if (videoGridRef.current) videoGridRef.current.innerHTML = '';
+    setParticipants([]);
+    setSpeakers([]);
+    setHasVideo(false);
+    setPhase('ended');
   };
 
-  // 회의 종료: deleteRoom → 모두 튕김 → room_finished → egress_ended → MinIO 확인 지점
+  const handleLeave = () => cleanup();
+
   const handleEndMeeting = async () => {
-    if (!joinInfo) return;
-    try {
-      await api.endMeeting(joinInfo.roomName);
-      pushLog('회의 종료 요청(deleteRoom). 잠시 후 녹음이 S3 로 업로드됩니다.');
-    } catch (e) {
-      pushLog('종료 요청 오류: ' + (e as Error).message);
+    if (joinInfo) {
+      try {
+        await api.endMeeting(joinInfo.roomName);
+      } catch (e) {
+        pushLog('종료 요청 오류: ' + (e as Error).message);
+      }
     }
-    await roomRef.current?.disconnect();
-    roomRef.current = null;
-    await loadStats();
+    cleanup();
   };
 
-  const loadStats = async () => {
-    if (!joinInfo) return;
-    setPhase('stats');
-    try {
-      const [s, c] = await Promise.all([
-        api.speechStats(joinInfo.meetingId),
-        api.coaching(joinInfo.meetingId, memberId),
-      ]);
-      setStats(s);
-      setAdvice(c.advice);
-    } catch (e) {
-      pushLog('통계 조회 오류: ' + (e as Error).message);
-    }
+  const backToLobby = () => {
+    setJoinInfo(null);
+    setLog([]);
+    setElapsed(0);
+    setPhase('lobby');
   };
 
-  const refreshStats = () => loadStats();
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   // ── 렌더 ──────────────────────────────────────
   if (phase === 'lobby') {
     return (
-      <div className="wrap">
-        <h1>OpenVidu3 회의 데모</h1>
-        <p className="muted">참여 → 화면공유/음소거/마이크 토글 → 종료 → MinIO 녹음 &amp; 발언시간 확인</p>
-        <div className="card">
-          <label>projectId <input type="number" value={projectId} onChange={(e) => setProjectId(+e.target.value)} /></label>
-          <label>memberId <input type="number" value={memberId} onChange={(e) => setMemberId(+e.target.value)} /></label>
-          <label>이름 <input value={memberName} onChange={(e) => setMemberName(e.target.value)} /></label>
-          <button className="primary" onClick={handleJoin}>회의 참여</button>
-        </div>
-        <p className="muted small">
-          팁: 다른 탭/브라우저에서 memberId·이름을 다르게 넣어 같은 projectId 로 참여하면 같은 방에 여러 명이 들어갑니다.
-        </p>
-      </div>
-    );
-  }
+      <div className="app lobbyBg">
+        <div className="lobbyCard">
+          <div className="brand"><span className="dot" /> 프로젝트 회의</div>
+          <h1>회의에 참여하기</h1>
+          <p className="sub">같은 프로젝트의 팀원과 음성으로 연결됩니다.</p>
 
-  if (phase === 'room') {
-    return (
-      <div className="wrap">
-        <h2>회의 중 · room {joinInfo?.roomName.slice(0, 8)}…</h2>
-        <div className="controls">
-          <button className={micOn ? 'on' : 'off'} onClick={toggleMic}>{micOn ? '🎙 마이크 ON' : '🔇 음소거'}</button>
-          <button className={camOn ? 'on' : 'off'} onClick={toggleCam}>{camOn ? '📷 카메라 ON' : '📷 카메라 OFF'}</button>
-          <button className={screenOn ? 'on' : 'off'} onClick={toggleScreen}>{screenOn ? '🖥 화면공유 중' : '🖥 화면공유'}</button>
-          <button className="ghost" onClick={handleLeave}>나가기</button>
-          <button className="danger" onClick={handleEndMeeting}>회의 종료</button>
-        </div>
-
-        <div className="speakers">발언 중: {speakers.length ? speakers.join(', ') : '—'}</div>
-
-        <div className="videos">
-          <div>
-            <h4>내 화면(카메라/공유)</h4>
-            <div ref={localMediaRef} className="mediaGrid" />
-          </div>
-          <div>
-            <h4>상대 화면</h4>
-            <div ref={remoteMediaRef} className="mediaGrid" />
-          </div>
-        </div>
-
-        <h4>이벤트 로그</h4>
-        <pre className="log">{log.join('\n')}</pre>
-      </div>
-    );
-  }
-
-  // stats
-  return (
-    <div className="wrap">
-      <h2>회의 결과 · meeting #{joinInfo?.meetingId}</h2>
-      <p className="muted">
-        음성 파일은 MinIO 에서 VAD 처리 후 삭제됩니다. 남는 건 숫자(발언시간)뿐 —{' '}
-        <a href="http://localhost:9001" target="_blank" rel="noreferrer">MinIO 콘솔</a> 에서 파일이 쌓였다 사라지는 걸 확인하세요.
-      </p>
-      <button className="ghost" onClick={refreshStats}>새로고침 (워커 처리 후 다시 조회)</button>
-
-      {stats && (
-        <div className="card">
-          <div>총 발언시간 {(stats.totalSpeakingMs / 1000).toFixed(1)}초 · 참여 균형 {stats.balanceScore}점</div>
-          {stats.participants.length === 0 && <p className="muted">아직 통계가 없습니다. 잠시 후 새로고침하세요.</p>}
-          {stats.participants.map((p) => (
-            <div key={p.memberId} className="bar">
-              <span className="barLabel">{p.memberName}</span>
-              <span className="barTrack"><span className="barFill" style={{ width: `${p.sharePct}%` }} /></span>
-              <span className="barVal">{(p.speakingMs / 1000).toFixed(1)}s · {p.sharePct}%</span>
+          <div className="fields">
+            <label>프로젝트 ID
+              <input type="number" value={projectId} onChange={(e) => setProjectId(+e.target.value)} />
+            </label>
+            <div className="row2">
+              <label>회원 ID
+                <input type="number" value={memberId} onChange={(e) => setMemberId(+e.target.value)} />
+              </label>
+              <label>이름
+                <input value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+              </label>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {advice && (
-        <div className="card">
-          <h4>AI 말하기 코칭 (LLM 호출은 데모에서 생략)</h4>
-          <p>{advice}</p>
-        </div>
-      )}
+          <button className="btnPrimary" onClick={handleJoin} disabled={joining}>
+            {joining ? '연결 중…' : '회의 참여'}
+          </button>
 
-      <button className="primary" onClick={() => setPhase('lobby')}>로비로</button>
+          <div className="recNotice">🔴 이 회의는 음성이 녹음됩니다.</div>
+        </div>
+        <p className="foot">회원 ID·이름은 로그인 세션이 없을 때만 쓰입니다.</p>
+      </div>
+    );
+  }
+
+  if (phase === 'ended') {
+    return (
+      <div className="app lobbyBg">
+        <div className="lobbyCard center">
+          <div className="endedIcon">👋</div>
+          <h1>회의가 종료되었습니다</h1>
+          <p className="sub">참여해 주셔서 감사합니다. 녹음은 잠시 후 저장됩니다.</p>
+          <button className="btnPrimary" onClick={backToLobby}>처음으로</button>
+        </div>
+      </div>
+    );
+  }
+
+  // room
+  const count = participants.length;
+  return (
+    <div className="app roomBg">
+      <header className="topbar">
+        <div className="tLeft">
+          <span className="recDot" title="녹음 중" />
+          <span className="recText">녹음 중</span>
+          <span className="sep" />
+          <span className="roomName">회의방 · {joinInfo?.roomName.slice(0, 8)}…</span>
+        </div>
+        <div className="tRight">
+          <span className="pill">⏱ {fmt(elapsed)}</span>
+          <span className="pill">👥 {count}명</span>
+        </div>
+      </header>
+
+      <main className="stage">
+        {hasVideo && <div ref={videoGridRef} className="videoGrid" />}
+        {!hasVideo && <div ref={videoGridRef} style={{ display: 'none' }} />}
+
+        <div className={`roster ${hasVideo ? 'compact' : ''}`}>
+          {participants.map((p) => {
+            const speaking = speakers.includes(p.identity);
+            return (
+              <div key={p.identity} className={`pTile ${speaking ? 'speaking' : ''}`}>
+                <div className="avatar" style={{ background: colorFor(p.identity) }}>
+                  {initials(p.name)}
+                  {!p.micOn && <span className="muteBadge">🔇</span>}
+                </div>
+                <div className="pName">{p.name}{p.isLocal && ' (나)'}</div>
+              </div>
+            );
+          })}
+        </div>
+      </main>
+
+      <footer className="controlbar">
+        <button className={`ctrl ${micOn ? '' : 'off'}`} onClick={toggleMic}>
+          <span className="ci">{micOn ? '🎙' : '🔇'}</span><span>{micOn ? '마이크' : '음소거됨'}</span>
+        </button>
+        <button className={`ctrl ${camOn ? 'active' : ''}`} onClick={toggleCam}>
+          <span className="ci">📷</span><span>카메라</span>
+        </button>
+        <button className={`ctrl ${screenOn ? 'active' : ''}`} onClick={toggleScreen}>
+          <span className="ci">🖥</span><span>화면공유</span>
+        </button>
+        <button className="ctrl leave" onClick={handleLeave}>
+          <span className="ci">🚪</span><span>나가기</span>
+        </button>
+        <button className="ctrl end" onClick={handleEndMeeting}>
+          <span className="ci">⛔</span><span>회의 종료</span>
+        </button>
+      </footer>
+
+      <button className="logToggle" onClick={() => setShowLog((v) => !v)}>
+        {showLog ? '로그 닫기' : '로그'}
+      </button>
+      {showLog && <pre className="logPanel">{log.join('\n')}</pre>}
     </div>
   );
 }
