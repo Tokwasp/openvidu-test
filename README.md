@@ -49,10 +49,13 @@ docker compose up --build
 - 마이크/카메라 권한을 허용하세요. (WebRTC는 localhost에서는 보안 컨텍스트로 취급되어 동작합니다.)
 - 여러 명을 흉내내려면 **다른 브라우저/시크릿 탭**에서 `memberId`·이름만 바꿔 같은 `projectId(=5)`로 참여하세요.
 
-### EC2에 올릴 때
-- `.env`의 `LIVEKIT_WS_URL`을 `ws://<EC2 공인 IP>:7880`으로 바꿉니다(브라우저가 직접 붙는 주소라 반드시 공인망 주소여야 함).
-- 보안그룹에서 `8081, 7880(tcp), 7881(tcp), 50000-50060(udp)`를 엽니다.
-- 실서비스라면 `livekit.yaml`의 `use_external_ip: true`와 TLS(wss) 적용을 권장합니다.
+### EC2에 올릴 때 (HTTPS)
+도메인 + nginx + certbot(HTTPS) + UFW 로 올리는 전체 절차는 **[deploy/DEPLOY.md](deploy/DEPLOY.md)** 에 정리했습니다.
+요점만:
+- HTTPS 페이지에서는 `ws://` 가 차단되므로 LiveKit 을 nginx 로 감싸 **`wss://`** 로 노출합니다.
+- 내부 포트(8080·8081·7880·3306·9000·9001)는 `docker-compose.yml` 에서 `127.0.0.1` 에 바인딩되어 외부에 열리지 않습니다(도커가 UFW 를 우회하는 문제 대비).
+- 공인망에는 `443/80(nginx)` 과 `7881(tcp)·50000-50060(udp)`(WebRTC 미디어)만 엽니다 → `deploy/setup-firewall.sh`.
+- `livekit.yaml` 의 `use_external_ip: true` 로 바꾸고, 데모 키를 실제 키로 교체합니다.
 
 ---
 

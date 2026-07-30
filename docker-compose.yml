@@ -19,7 +19,9 @@ services:
       MYSQL_USER: meeting
       MYSQL_PASSWORD: meeting
     ports:
-      - "3306:3306"
+      # ⚠️ Docker 는 UFW 를 우회한다. 외부 노출이 필요 없는 포트는 반드시
+      #    127.0.0.1 에 묶어 공인망에서 접근하지 못하게 한다. (deploy/DEPLOY.md §2)
+      - "127.0.0.1:3306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
       interval: 5s
@@ -34,8 +36,9 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"   # S3 API — 녹음 확인용
-      - "9001:9001"   # 웹 콘솔 — 브라우저로 파일이 쌓이는지 눈으로 확인
+      # 외부 노출 금지. 콘솔은 SSH 터널로 본다: ssh -L 9001:127.0.0.1:9001 (DEPLOY.md §6)
+      - "127.0.0.1:9000:9000"   # S3 API — 녹음 확인용
+      - "127.0.0.1:9001:9001"   # 웹 콘솔 — 브라우저로 파일이 쌓이는지 눈으로 확인
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -63,8 +66,10 @@ services:
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
     ports:
-      - "7880:7880"                    # WebRTC 시그널 (브라우저가 붙는 곳)
-      - "7881:7881"                    # RTC over TCP
+      # 시그널링(7880)은 호스트 nginx 가 wss 로 프록시하므로 localhost 에만 바인딩.
+      - "127.0.0.1:7880:7880"          # WebRTC 시그널 (nginx → wss 로 감쌈)
+      # 아래 둘은 브라우저가 직접 미디어를 주고받는 포트라 공인망에 열어야 한다.
+      - "7881:7881"                    # RTC over TCP (ICE 폴백)
       - "50000-50060:50000-50060/udp"  # RTC 미디어
     depends_on:
       - redis
@@ -102,7 +107,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-recordings}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"   # 호스트 nginx 가 /api 를 프록시. 외부 직접 노출 안 함
     depends_on:
       mysql:
         condition: service_healthy
@@ -116,7 +121,7 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8081:80"
+      - "127.0.0.1:8081:80"   # 호스트 nginx(443) 가 여기로 프록시. 외부 직접 노출 안 함
     depends_on:
       - backend
     restart: unless-stopped
