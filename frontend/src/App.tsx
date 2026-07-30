@@ -98,6 +98,7 @@ export default function App() {
     tile.className = 'videoTile';
     tile.dataset.tid = id;
     const el = track.attach() as HTMLVideoElement;
+    if (id.startsWith('local-')) el.style.transform = 'scaleX(-1)';  // 자기 영상은 거울 반전
     const cap = document.createElement('span');
     cap.className = 'videoName';
     cap.textContent = label;
@@ -285,8 +286,8 @@ export default function App() {
       </header>
 
       <main className="stage">
-        {hasVideo && <div ref={videoGridRef} className="videoGrid" />}
-        {!hasVideo && <div ref={videoGridRef} style={{ display: 'none' }} />}
+        {/* 그리드는 항상 마운트 유지(교체하면 붙인 video 요소가 사라진다). 표시만 토글. */}
+        <div ref={videoGridRef} className="videoGrid" style={{ display: hasVideo ? 'grid' : 'none' }} />
 
         <div className={`roster ${hasVideo ? 'compact' : ''}`}>
           {participants.map((p) => {
