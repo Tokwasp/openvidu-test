@@ -119,7 +119,9 @@ docker compose up --build
   server SDK로 그대로 구현했습니다(문서의 `livekit-server SDK` 서술과 일치).
 - **Egress SDK 메서드의 인자 순서**는 SDK 버전(`io.livekit:livekit-server:0.8.1`)에 따라
   다를 수 있어 `EgressService.java` 한 곳에 격리했습니다. 빌드가 안 맞으면 이 파일만 조정하세요.
-- 방 타임아웃(empty 120초 / departure 20초)은 `livekit.yaml`의 `room` 기본값으로 두었습니다(01 §4).
+- 방 타임아웃(empty 120초 / departure 1초)은 `livekit.yaml`의 `room` 기본값으로 두었습니다(01 §4).
+  departure 를 1초로 둔 이유: 마지막 참가자가 나가면 거의 즉시 방을 닫아 mixed 녹음을 바로 마감하기 위함.
+  (LiveKit 에서 0 은 "기본값 사용"으로 폴백되므로 최소값 1 을 사용. 재접속 유예는 사실상 사라짐.)
 - 로그인/세션(Redis)은 데모 단순화를 위해 생략하고, `memberId`·이름을 참여 요청 바디로 받습니다(02 §7 참고).
 - `ddl-auto: update` 로 테이블을 자동 생성합니다(데모 편의용).
 ```
