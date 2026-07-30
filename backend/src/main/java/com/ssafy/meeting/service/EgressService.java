@@ -4,7 +4,6 @@ import com.ssafy.meeting.config.S3Properties;
 import io.livekit.server.EgressServiceClient;
 import io.livekit.server.EncodedOutputs;
 import livekit.LivekitEgress;
-import livekit.LivekitModels;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,16 +33,15 @@ public class EgressService {
         LivekitEgress.EncodedFileOutput file =
                 oggFileOutput("meetings/{room_name}/{publisher_identity}/{time}.ogg");
         EncodedOutputs outputs = new EncodedOutputs(file, null, null, null);
-        // ⚠️ OGG(오디오 전용) 출력엔 기본 비디오 프리셋(H264_720P_30)이 안 맞아 LiveKit 이
-        //    "no supported codec is compatible with all outputs" 400 을 낸다.
-        //    preset 을 비우고(null) 오디오 전용 EncodingOptions(OPUS)를 넘긴다.
-        LivekitEgress.EncodingOptions audioOnly = LivekitEgress.EncodingOptions.newBuilder()
-                .setAudioCodec(LivekitModels.AudioCodec.OPUS)
-                .build();
+        // ⚠️ OGG(오디오 전용) 출력엔 인코딩 옵션(프리셋/advanced)을 주면 비디오 코덱을 요구해
+        //    "no supported codec is compatible with all outputs" 400 이 난다.
+        //    믹스 egress 처럼 preset·advanced 를 모두 null 로 두면 옵션이 안 붙어 오디오 전용이 된다.
         try {
             Response<LivekitEgress.EgressInfo> res = egressClient
                     .startParticipantEgress(roomName, String.valueOf(memberId), outputs,
-                            false, (LivekitEgress.EncodingOptionsPreset) null, audioOnly)
+                            false,
+                            (LivekitEgress.EncodingOptionsPreset) null,
+                            (LivekitEgress.EncodingOptions) null)
                     .execute();
             LivekitEgress.EgressInfo info = requireBody(res, "participant egress");
             log.info("[Egress] participant 시작 room={} member={} egressId={}",
