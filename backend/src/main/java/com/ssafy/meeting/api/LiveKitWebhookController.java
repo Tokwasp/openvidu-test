@@ -26,7 +26,9 @@ public class LiveKitWebhookController {
     private final WebhookReceiver webhookReceiver;
     private final WebhookService webhookService;
 
-    @PostMapping(value = "/api/livekit/webhook", consumes = MediaType.APPLICATION_JSON_VALUE)
+    // LiveKit 은 웹훅을 Content-Type: application/webhook+json 으로 보낸다.
+    // application/json 으로 제한하면 415 로 거부되어 방 생명주기·녹음이 동작하지 않는다.
+    @PostMapping(value = "/api/livekit/webhook", consumes = MediaType.ALL_VALUE)
     public ResponseEntity<Void> receive(@RequestBody String body,
                                         @RequestHeader(value = "Authorization", required = false) String authHeader) {
         try {
