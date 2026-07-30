@@ -4,18 +4,6 @@ server:
 spring:
   application:
     name: meeting
-  datasource:
-    url: jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:meeting}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
-    username: ${DB_USER:meeting}
-    password: ${DB_PASSWORD:meeting}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  jpa:
-    hibernate:
-      ddl-auto: update          # 데모 편의용. 운영에선 flyway 등으로 교체
-    properties:
-      hibernate:
-        format_sql: true
-    open-in-view: false
 
   # ── 세션(모놀리식과 공유하는 Upstash Redis) — 02 §7 ──────────────
   # 회의 서비스는 이 Redis 세션에서 LoginMember 를 읽어 회원을 식별한다.

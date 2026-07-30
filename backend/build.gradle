@@ -19,10 +19,9 @@ repositories {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-    // 모놀리식과 공유하는 Redis 세션에서 로그인 회원을 식별 (02 §7)
+    // 세션(회원 식별) + 방 상태(projectId→roomName) 모두 Redis. MySQL 은 쓰지 않는다.
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.session:spring-session-data-redis'
 
@@ -32,11 +31,6 @@ dependencies {
     // LiveKit SDK 는 protobuf 전체 런타임(GeneratedMessageV3)을 요구한다.
     // 빠지면 WebhookReceiver 로딩 시 NoClassDefFoundError 로 백엔드가 기동 실패한다.
     implementation 'com.google.protobuf:protobuf-java:3.25.5'
-
-    // MinIO(스크래치) 에서 녹음 파일을 읽고 삭제 (05/06 문서)
-    implementation 'io.minio:minio:8.5.12'
-
-    runtimeOnly 'com.mysql:mysql-connector-j'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

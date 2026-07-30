@@ -11,31 +11,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
 
-  mysql:
-    image: mysql:8.0
-    # 작은 EC2(메모리 빠듯)에서도 뜨도록 메모리 사용을 줄인다
-    command: >
-      --innodb-buffer-pool-size=64M
-      --performance-schema=OFF
-      --innodb-flush-method=O_DIRECT
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: meeting
-      MYSQL_USER: meeting
-      MYSQL_PASSWORD: meeting
-    volumes:
-      - mysql-data:/var/lib/mysql   # 익명 볼륨 대신 관리되는 named 볼륨
-    ports:
-      # ⚠️ Docker 는 UFW 를 우회한다. 외부 노출이 필요 없는 포트는 반드시
-      #    127.0.0.1 에 묶어 공인망에서 접근하지 못하게 한다. (deploy/DEPLOY.md §2)
-      - "127.0.0.1:3306:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 60s             # 첫 초기화 동안 healthcheck 실패로 안 죽게 여유
-    restart: unless-stopped
+  # MySQL 제거됨 — 방 상태는 Redis(Upstash), 세션도 Redis. 회원 식별은 세션에서.
 
   minio:
     image: minio/minio:latest
@@ -100,11 +76,6 @@ services:
   backend:
     build: ./backend
     environment:
-      DB_HOST: mysql
-      DB_PORT: "3306"
-      DB_NAME: meeting
-      DB_USER: meeting
-      DB_PASSWORD: meeting
       # 브라우저가 붙는 주소 — EC2 배포 시 ws://<EC2 공인IP>:7880 으로 바꾼다
       LIVEKIT_WS_URL: ${LIVEKIT_WS_URL:-ws://localhost:7880}
       LIVEKIT_HOST: http://livekit:7880
@@ -122,8 +93,6 @@ services:
     ports:
       - "127.0.0.1:8080:8080"   # 프론트(nginx) 컨테이너가 /api 를 프록시. 외부 직접 노출 안 함
     depends_on:
-      mysql:
-        condition: service_healthy
       livekit:
         condition: service_started
       minio:
@@ -167,6 +136,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  mysql-data:
   caddy-data:
   caddy-config:

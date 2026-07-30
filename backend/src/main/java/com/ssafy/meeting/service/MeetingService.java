@@ -2,59 +2,59 @@ package com.ssafy.meeting.service;
 
 import com.ssafy.meeting.api.dto.JoinResponse;
 import com.ssafy.meeting.config.LiveKitProperties;
-import com.ssafy.meeting.domain.meeting.Meeting;
-import com.ssafy.meeting.domain.meeting.MeetingRepository;
 import io.livekit.server.RoomServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
 /**
  * 참여/종료 흐름 (01-room-lifecycle.md, 02-access-token.md).
- *  - join: 열린 회의 있으면 재사용, 없으면 createRoom + INSERT. 토큰은 매번 새로 서명.
- *  - end : deleteRoom만 요청. DB는 건드리지 않는다 → room_finished 웹훅이 닫는다.
+ * 방 상태의 주인은 Redis(RoomRegistry). MySQL 은 쓰지 않는다.
+ *  - join: 프로젝트에 열린 방 있으면 재사용, 없으면 createRoom + Redis 저장. 토큰은 매번 새로 서명.
+ *  - end : deleteRoom만 요청. Redis 는 건드리지 않는다 → room_finished 웹훅이 닫는다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class MeetingService {
 
-    private final MeetingRepository meetingRepository;
+    private final RoomRegistry roomRegistry;
     private final RoomServiceClient roomServiceClient;
     private final TokenService tokenService;
     private final LiveKitProperties liveKit;
 
-    @Transactional
     public JoinResponse join(int projectId, int memberId, String memberName) {
-        Meeting meeting = meetingRepository.findOpenMeeting(projectId)
-                .map(existing -> {
-                    // 있음 → 아무것도 만들지 않고 아무것도 UPDATE 하지 않는다. 토큰만 새로 서명.
-                    log.info("[Join] 기존 회의 재사용 meetingId={} room={}",
-                            existing.getId(), existing.getRoomName());
-                    return existing;
-                })
-                .orElseGet(() -> openNewMeeting(projectId, memberId));
+        String existing = roomRegistry.findRoom(projectId).orElse(null);
 
-        String token = tokenService.issue(memberId, memberName, meeting.getRoomName());
-        boolean created = meeting.getStartedAt() == null && meeting.getEndedAt() == null;
+        String roomName;
+        boolean created;
+        if (existing != null) {
+            // 있음 → 아무것도 만들지 않는다. 토큰만 새로 서명.
+            roomName = existing;
+            created = false;
+            log.info("[Join] 기존 회의 재사용 project={} room={}", projectId, roomName);
+        } else {
+            roomName = openNewRoom(projectId);
+            created = true;
+        }
 
-        return new JoinResponse(
-                meeting.getId(),
-                meeting.getRoomName(),
-                token,
-                liveKit.wsUrl(),
-                created);
+        String token = tokenService.issue(memberId, memberName, roomName);
+        return new JoinResponse(roomName, token, liveKit.wsUrl(), created);
     }
 
-    private Meeting openNewMeeting(int projectId, int createdBy) {
+    /**
+     * Room 을 먼저 만들고 Redis 에 저장한다(순서 중요).
+     * 반대로 하면 Redis 엔 있는데 LiveKit 호출 실패로 못 들어가는 방이 남는다.
+     * 동시 첫 입장으로 방이 둘 생기는 것은 이 규모에서 방어하지 않는다(01 §2).
+     */
+    private String openNewRoom(int projectId) {
         String roomName = UUID.randomUUID().toString();   // 회의마다 새 UUID (녹음 폴더의 자연 키)
         createRoom(roomName);
-        Meeting meeting = meetingRepository.save(Meeting.open(projectId, roomName, createdBy));
-        log.info("[Join] 새 회의 생성 meetingId={} room={}", meeting.getId(), roomName);
-        return meeting;
+        roomRegistry.open(projectId, roomName);
+        log.info("[Join] 새 회의 생성 project={} room={}", projectId, roomName);
+        return roomName;
     }
 
     /**
@@ -80,14 +80,11 @@ public class MeetingService {
         }
     }
 
-    /** "회의 종료" 버튼 — deleteRoom만. DB는 room_finished 웹훅이 닫는다 (01 §5·§6). */
-    @Transactional(readOnly = true)
-    public void end(int meetingId) {
-        Meeting meeting = meetingRepository.findById(meetingId)
-                .orElseThrow(() -> new IllegalArgumentException("회의를 찾을 수 없습니다: " + meetingId));
+    /** "회의 종료" 버튼 — deleteRoom만. Redis 는 room_finished 웹훅이 닫는다 (01 §5·§6). */
+    public void end(String roomName) {
         try {
-            roomServiceClient.deleteRoom(meeting.getRoomName()).execute();
-            log.info("[End] deleteRoom 요청 room={} (webhook이 DB를 닫음)", meeting.getRoomName());
+            roomServiceClient.deleteRoom(roomName).execute();
+            log.info("[End] deleteRoom 요청 room={} (webhook이 Redis를 닫음)", roomName);
         } catch (Exception e) {
             throw new IllegalStateException("deleteRoom 실패: " + e.getMessage(), e);
         }
