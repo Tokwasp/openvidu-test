@@ -17,6 +17,22 @@ spring:
         format_sql: true
     open-in-view: false
 
+  # ── 세션(모놀리식과 공유하는 Upstash Redis) — 02 §7 ──────────────
+  # 회의 서비스는 이 Redis 세션에서 LoginMember 를 읽어 회원을 식별한다.
+  # ⚠️ 모놀리식과 같은 Upstash·같은 SESSION 쿠키·같은 직렬화여야 한다(SessionConfig).
+  data:
+    redis:
+      host: ${UPSTASH_REDIS_HOST}
+      port: ${UPSTASH_REDIS_PORT:6379}
+      password: ${UPSTASH_REDIS_PASSWORD}
+      ssl:
+        enabled: ${UPSTASH_REDIS_SSL:true}
+  session:
+    store-type: redis
+    timeout: 30m
+    redis:
+      namespace: ${SESSION_NAMESPACE:spring:session}   # 모놀리식이 커스텀했으면 맞춘다
+
 # ── LiveKit(OpenVidu3) 접속 정보 ──────────────────────────────
 livekit:
   # 브라우저가 WebRTC로 붙는 주소 (프론트에 그대로 내려줌)
