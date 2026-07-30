@@ -20,9 +20,9 @@ echo "[2/4] SSH 허용 (가장 먼저 — 잠기지 않도록)"
 # SSH 포트를 22 가 아닌 것으로 바꿨다면 아래 숫자를 그 포트로 수정한다.
 sudo ufw allow 22/tcp        comment 'SSH'
 
-echo "[3/4] HTTP/HTTPS 허용 (nginx: certbot 챌린지 + 리다이렉트 + TLS)"
-sudo ufw allow 80/tcp        comment 'HTTP (certbot, redirect)'
-sudo ufw allow 443/tcp       comment 'HTTPS (nginx)'
+echo "[3/4] HTTP/HTTPS 허용 (caddy: ACME 인증서 발급 + TLS)"
+sudo ufw allow 80/tcp        comment 'HTTP (ACME challenge, redirect)'
+sudo ufw allow 443/tcp       comment 'HTTPS (caddy)'
 
 echo "[4/4] LiveKit WebRTC 미디어 포트 (브라우저 ↔ EC2 직접 통신)"
 sudo ufw allow 7881/tcp              comment 'LiveKit ICE/TCP fallback'
@@ -37,12 +37,12 @@ cat <<'EOF'
 ────────────────────────────────────────────────────────────────
 열린 포트 요약:
   22/tcp                SSH
-  80/tcp                HTTP  (certbot / 443 리다이렉트)
-  443/tcp               HTTPS (nginx: 앱 + wss 시그널링)
+  80/tcp                HTTP  (caddy ACME / 443 리다이렉트)
+  443/tcp               HTTPS (caddy: 앱 + wss 시그널링)
   7881/tcp              LiveKit ICE/TCP 폴백
   50000-50060/udp       LiveKit 미디어
 
-일부러 안 연 포트(호스트 nginx/도커 내부에서만 접근):
+일부러 안 연 포트(caddy/도커 내부에서만 접근):
   8080(백엔드) 8081(프론트) 7880(LiveKit 시그널) 3306(MySQL) 9000/9001(MinIO)
   → docker-compose.yml 에서 127.0.0.1 에 바인딩되어 외부 노출되지 않는다.
 

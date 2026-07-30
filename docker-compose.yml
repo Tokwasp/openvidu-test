@@ -13,11 +13,18 @@ services:
 
   mysql:
     image: mysql:8.0
+    # 작은 EC2(메모리 빠듯)에서도 뜨도록 메모리 사용을 줄인다
+    command: >
+      --innodb-buffer-pool-size=64M
+      --performance-schema=OFF
+      --innodb-flush-method=O_DIRECT
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: meeting
       MYSQL_USER: meeting
       MYSQL_PASSWORD: meeting
+    volumes:
+      - mysql-data:/var/lib/mysql   # 익명 볼륨 대신 관리되는 named 볼륨
     ports:
       # ⚠️ Docker 는 UFW 를 우회한다. 외부 노출이 필요 없는 포트는 반드시
       #    127.0.0.1 에 묶어 공인망에서 접근하지 못하게 한다. (deploy/DEPLOY.md §2)
@@ -26,7 +33,8 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
+      start_period: 60s             # 첫 초기화 동안 healthcheck 실패로 안 죽게 여유
     restart: unless-stopped
 
   minio:
@@ -66,8 +74,8 @@ services:
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
     ports:
-      # 시그널링(7880)은 호스트 nginx 가 wss 로 프록시하므로 localhost 에만 바인딩.
-      - "127.0.0.1:7880:7880"          # WebRTC 시그널 (nginx → wss 로 감쌈)
+      # 시그널링(7880)은 caddy 가 wss://<도메인>/rtc 로 프록시하므로 localhost 에만 바인딩.
+      - "127.0.0.1:7880:7880"          # WebRTC 시그널 (caddy → wss 로 감쌈)
       # 아래 둘은 브라우저가 직접 미디어를 주고받는 포트라 공인망에 열어야 한다.
       - "7881:7881"                    # RTC over TCP (ICE 폴백)
       - "50000-50060:50000-50060/udp"  # RTC 미디어
@@ -107,7 +115,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-recordings}
     ports:
-      - "127.0.0.1:8080:8080"   # 호스트 nginx 가 /api 를 프록시. 외부 직접 노출 안 함
+      - "127.0.0.1:8080:8080"   # 프론트(nginx) 컨테이너가 /api 를 프록시. 외부 직접 노출 안 함
     depends_on:
       mysql:
         condition: service_healthy
@@ -121,7 +129,39 @@ services:
     build:
       context: ./frontend
     ports:
-      - "127.0.0.1:8081:80"   # 호스트 nginx(443) 가 여기로 프록시. 외부 직접 노출 안 함
+      # caddy 는 도커 네트워크(frontend:80)로 접근하므로 이 포트는 직접 접근(SSH 터널)용.
+      # 공인망에 열 필요 없어 127.0.0.1 에만 바인딩한다.
+      - "127.0.0.1:8081:80"
     depends_on:
       - backend
     restart: unless-stopped
+
+  # ── HTTPS 리버스 프록시 (도메인 접속용) ─────────────
+  # foodshare.click 같은 도메인으로 접속할 때만 사용.
+  #   - Let's Encrypt 인증서 자동 발급/갱신
+  #   - https://DOMAIN            → 프론트(UI + /api)
+  #   - wss://DOMAIN/rtc          → LiveKit 시그널(신호)
+  # 미디어(UDP)는 caddy를 거치지 않고 EC2로 직접 흐른다.
+  # DOMAIN 이 비어 있으면(로컬/IP 테스트) 이 서비스는 caddy 프로필로 꺼둘 수 있다.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["proxy"]              # 도메인 접속 시에만: docker compose --profile proxy up -d
+    environment:
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - livekit
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  caddy-data:
+  caddy-config:

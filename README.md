@@ -49,13 +49,27 @@ docker compose up --build
 - 마이크/카메라 권한을 허용하세요. (WebRTC는 localhost에서는 보안 컨텍스트로 취급되어 동작합니다.)
 - 여러 명을 흉내내려면 **다른 브라우저/시크릿 탭**에서 `memberId`·이름만 바꿔 같은 `projectId(=5)`로 참여하세요.
 
-### EC2에 올릴 때 (HTTPS)
-도메인 + nginx + certbot(HTTPS) + UFW 로 올리는 전체 절차는 **[deploy/DEPLOY.md](deploy/DEPLOY.md)** 에 정리했습니다.
-요점만:
-- HTTPS 페이지에서는 `ws://` 가 차단되므로 LiveKit 을 nginx 로 감싸 **`wss://`** 로 노출합니다.
-- 내부 포트(8080·8081·7880·3306·9000·9001)는 `docker-compose.yml` 에서 `127.0.0.1` 에 바인딩되어 외부에 열리지 않습니다(도커가 UFW 를 우회하는 문제 대비).
-- 공인망에는 `443/80(nginx)` 과 `7881(tcp)·50000-50060(udp)`(WebRTC 미디어)만 엽니다 → `deploy/setup-firewall.sh`.
-- `livekit.yaml` 의 `use_external_ip: true` 로 바꾸고, 데모 키를 실제 키로 교체합니다.
+### EC2에 올릴 때
+
+> 브라우저는 `http://IP` 에서는 마이크·화면공유를 막는다(보안 컨텍스트 필요). 접속은 아래 두 방식 중 하나.
+> 보안그룹을 못 쓰는 인스턴스라면 방화벽·HTTPS 전체 절차를 **[deploy/DEPLOY.md](deploy/DEPLOY.md)** 에 정리해 두었다.
+
+**A. 혼자 테스트 (SSH 터널, 추가 세팅 없음)**
+- `.env`의 `LIVEKIT_WS_URL`을 `ws://<EC2 공인 IP>:7880`으로.
+- `infra/livekit/livekit.yaml`의 `use_external_ip: true`.
+- 보안그룹(또는 UFW)에서 `7880(tcp), 7881(tcp), 50000-50060(udp)` 개방.
+- 노트북에서 `ssh -L 8081:localhost:8081 ec2-user@<IP>` 후 `http://localhost:8081` 접속.
+
+**B. 도메인으로 여러 명 접속 (HTTPS, caddy)**
+1. DNS A레코드로 도메인 → EC2 공인 IP 연결.
+2. 방화벽에 **80, 443**(그리고 미디어용 `50000-50060/udp`, 폴백 `7881/tcp`) 개방.
+   보안그룹이 없으면 `bash deploy/setup-firewall.sh` (UFW) 사용.
+3. `.env`에 `DOMAIN`, `ACME_EMAIL` 채우고 `LIVEKIT_WS_URL=wss://<도메인>/rtc` 로 변경.
+4. `docker compose --profile proxy up -d --build` — caddy가 Let's Encrypt 인증서를 자동 발급하고 `https://<도메인>` 하나로 UI(+/api)와 `wss://.../rtc`(LiveKit 신호)를 서빙한다. 미디어(UDP)는 caddy를 거치지 않고 EC2로 직접 흐른다.
+
+> 내부 포트(8080·8081·7880·3306·9000·9001)는 `docker-compose.yml` 에서 `127.0.0.1` 에 바인딩되어 있다.
+> 도커가 UFW 를 우회해 DB·MinIO 가 공인망에 노출되는 사고를 막기 위함이다(자세한 건 deploy/DEPLOY.md).
+> 작은 인스턴스(메모리 빠듯)면 스왑 2GB 정도 잡아두면 mysql/egress가 안정적이다.
 
 ---
 
