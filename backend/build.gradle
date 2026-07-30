@@ -25,6 +25,9 @@ dependencies {
     // LiveKit server SDK — 토큰 서명 / Room / Egress 제어 (OpenVidu3 = 내부적으로 LiveKit)
     // 02-access-token.md §7 "livekit-server SDK가 서명까지 다 한다" → jjwt 불필요
     implementation 'io.livekit:livekit-server:0.8.1'
+    // LiveKit SDK 는 protobuf 전체 런타임(GeneratedMessageV3)을 요구한다.
+    // 빠지면 WebhookReceiver 로딩 시 NoClassDefFoundError 로 백엔드가 기동 실패한다.
+    implementation 'com.google.protobuf:protobuf-java:3.25.5'
 
     // MinIO(스크래치) 에서 녹음 파일을 읽고 삭제 (05/06 문서)
     implementation 'io.minio:minio:8.5.12'
