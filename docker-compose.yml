@@ -57,11 +57,15 @@ services:
       AWS_S3_REGION: ${AWS_S3_REGION:-ap-northeast-2}
       AWS_S3_ACCESS_KEY: ${AWS_S3_ACCESS_KEY:-}
       AWS_S3_SECRET_KEY: ${AWS_S3_SECRET_KEY:-}
+      # 녹음 후처리 큐 (egress_ended → 발행). 비우면 발행 생략.
+      AWS_SQS_QUEUE_URL: ${AWS_SQS_QUEUE_URL:-}
       # 모놀리식과 공유하는 Upstash Redis 세션 (02 §7). 반드시 채워야 기동된다.
       UPSTASH_REDIS_HOST: ${UPSTASH_REDIS_HOST:-}
       UPSTASH_REDIS_PORT: ${UPSTASH_REDIS_PORT:-6379}
       UPSTASH_REDIS_PASSWORD: ${UPSTASH_REDIS_PASSWORD:-}
       UPSTASH_REDIS_SSL: ${UPSTASH_REDIS_SSL:-true}
+      # 개발용 세션 우회 — true 면 세션 없이 쿼리 memberId 로 참여(단독 테스트). 운영 false!
+      MEETING_DEV_AUTH_BYPASS: ${MEETING_DEV_AUTH_BYPASS:-false}
     ports:
       - "127.0.0.1:8080:8080"   # 프론트(nginx) 컨테이너가 /api 를 프록시. 외부 직접 노출 안 함
     depends_on:
