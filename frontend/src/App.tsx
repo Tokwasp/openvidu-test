@@ -49,6 +49,7 @@ export default function App() {
   const [participants, setParticipants] = useState<PInfo[]>([]);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [hasVideo, setHasVideo] = useState(false);
+  const [needSound, setNeedSound] = useState(false);  // 브라우저 자동재생 차단 시 클릭 유도
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
@@ -143,7 +144,26 @@ export default function App() {
       .on(RoomEvent.TrackUnmuted, resync)
       .on(RoomEvent.ParticipantConnected, (p) => { pushLog(`입장: ${p.name || p.identity}`); resync(); })
       .on(RoomEvent.ParticipantDisconnected, (p) => { pushLog(`퇴장: ${p.name || p.identity}`); resync(); })
+      // 자동재생이 막히면 canPlaybackAudio=false 로 바뀐다 → 클릭 배너를 띄워 startAudio 유도.
+      .on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        const blocked = !room.canPlaybackAudio;
+        setNeedSound(blocked);
+        if (blocked) pushLog('브라우저가 소리 재생을 막음 — "소리 켜기" 클릭 필요');
+      })
       .on(RoomEvent.Disconnected, () => pushLog('연결 종료됨'));
+  };
+
+  // 자동재생 차단 해제: 반드시 사용자 클릭 핸들러 안에서 동기적으로 startAudio 를 호출해야 먹힌다.
+  const enableSound = async () => {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.startAudio();
+      setNeedSound(!room.canPlaybackAudio);
+      if (room.canPlaybackAudio) pushLog('소리 재생 허용됨');
+    } catch (e) {
+      pushLog('소리 켜기 실패: ' + (e as Error).message);
+    }
   };
 
   // ── 참여 ──────────────────────────────────────
@@ -161,10 +181,10 @@ export default function App() {
       roomRef.current = room;
       wireEvents(room);
       await room.connect(info.livekitUrl, info.token);
-      // 브라우저 자동재생 차단 대비: 입장 클릭(사용자 제스처) 안에서 오디오 재생을 명시적으로 허용.
-      if (!room.canPlaybackAudio) {
-        try { await room.startAudio(); } catch { /* 사용자가 마이크 토글 등 다음 제스처에서 재시도됨 */ }
-      }
+      // 자동재생 차단 대비: 먼저 조용히 시도. connect 의 await 로 사용자 활성화가
+      // 만료돼 실패할 수 있으므로, 그때는 배너(needSound)로 클릭을 유도한다.
+      try { await room.startAudio(); } catch { /* 아래에서 배너로 처리 */ }
+      setNeedSound(!room.canPlaybackAudio);
       await room.localParticipant.setMicrophoneEnabled(true);
       setMicOn(true);
       syncParticipants(room);
@@ -230,6 +250,7 @@ export default function App() {
     setParticipants([]);
     setSpeakers([]);
     setHasVideo(false);
+    setNeedSound(false);
     setPhase('ended');
   };
 
@@ -318,6 +339,12 @@ export default function App() {
           <span className="pill">👥 {count}명</span>
         </div>
       </header>
+
+      {needSound && (
+        <button className="soundBanner" onClick={enableSound}>
+          🔊 브라우저가 소리를 막았어요 — 눌러서 상대 목소리 듣기
+        </button>
+      )}
 
       <main className="stage">
         {/* 그리드는 항상 마운트 유지(교체하면 붙인 video 요소가 사라진다). 표시만 토글. */}
