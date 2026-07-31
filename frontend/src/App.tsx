@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  createLocalTracks,
+  LocalAudioTrack,
+  LocalVideoTrack,
   Participant,
   RemoteTrack,
   RemoteTrackPublication,
@@ -10,7 +13,7 @@ import {
 import * as api from './api';
 import type { JoinResponse } from './api';
 
-type Phase = 'lobby' | 'room' | 'ended';
+type Phase = 'lobby' | 'prejoin' | 'room' | 'ended';
 
 interface PInfo {
   identity: string;
@@ -54,9 +57,22 @@ export default function App() {
   const [log, setLog] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
 
+  // ── 프리조인(기기 설정) 상태 ─────────────────
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState('');
+  const [selectedCamId, setSelectedCamId] = useState('');
+  const [prejoinStatus, setPrejoinStatus] = useState('');
+  const [prejoinErr, setPrejoinErr] = useState(false);
+  const [previewTick, setPreviewTick] = useState(0);  // 미리보기 재부착 트리거
+
   const roomRef = useRef<Room | null>(null);
   const videoGridRef = useRef<HTMLDivElement | null>(null);
   const startedAtRef = useRef<number>(0);
+  // 프리조인에서 미리 잡아둔 로컬 트랙. 참여 시 그대로 publish 해 카메라를 두 번 잡지 않는다.
+  const preMicTrackRef = useRef<LocalAudioTrack | null>(null);
+  const preCamTrackRef = useRef<LocalVideoTrack | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   const pushLog = useCallback((line: string) => {
     setLog((prev) => [`${new Date().toLocaleTimeString()}  ${line}`, ...prev].slice(0, 60));
@@ -168,27 +184,156 @@ export default function App() {
     }
   };
 
-  // ── 참여 ──────────────────────────────────────
-  const handleJoin = async () => {
+  // ── 프리조인(기기 설정) ────────────────────────
+  // 로비 → 프리조인: 권한을 받고 기기 목록·미리보기를 준비한다. 서버 호출/Room 인스턴스는 아직 없다.
+  const openPrejoin = async () => {
+    setPrejoinErr(false);
+    setPrejoinStatus('카메라·마이크 준비 중…');
+    setMicOn(true);
+    setCamOn(true);
+    setPhase('prejoin');
+    try {
+      // 1) 권한 + 트랙 확보 (서버 호출 0번, Room 불필요)
+      const tracks = await createLocalTracks({ audio: true, video: true });
+      for (const t of tracks) {
+        if (t.kind === Track.Kind.Audio) preMicTrackRef.current = t as LocalAudioTrack;
+        else if (t.kind === Track.Kind.Video) preCamTrackRef.current = t as LocalVideoTrack;
+      }
+      // 2) 기기 목록은 권한 승인 후 조회해야 label(기기 이름)이 채워진다.
+      const camList = await Room.getLocalDevices('videoinput');
+      const micList = await Room.getLocalDevices('audioinput');
+      setCams(camList);
+      setMics(micList);
+      setSelectedMicId(preMicTrackRef.current?.mediaStreamTrack.getSettings().deviceId ?? micList[0]?.deviceId ?? '');
+      setSelectedCamId(preCamTrackRef.current?.mediaStreamTrack.getSettings().deviceId ?? camList[0]?.deviceId ?? '');
+      setPrejoinStatus('');
+      setPreviewTick((n) => n + 1);  // 미리보기 부착
+    } catch (e) {
+      setPrejoinErr(true);
+      setPrejoinStatus('카메라/마이크 권한이 필요합니다: ' + (e as Error).message);
+    }
+  };
+
+  // 미리보기 부착: 카메라 grab 은 하지 않고 이미 잡아둔 트랙을 DOM 에 붙이기만 한다(멱등).
+  useEffect(() => {
+    if (phase !== 'prejoin') return;
+    const box = previewRef.current;
+    if (!box) return;
+    box.innerHTML = '';
+    const track = preCamTrackRef.current;
+    if (camOn && track) {
+      const el = track.attach() as HTMLVideoElement;
+      el.style.cssText = 'width:100%;height:100%;object-fit:cover;transform:scaleX(-1)';
+      box.appendChild(el);
+    }
+  }, [phase, camOn, previewTick]);
+
+  const togglePreMic = () => {
+    const t = preMicTrackRef.current;
+    if (!t) return;
+    const next = !micOn;
+    if (next) t.unmute(); else t.mute();
+    setMicOn(next);
+  };
+
+  const togglePreCam = async () => {
+    const next = !camOn;
+    if (next) {
+      try {
+        const [t] = await createLocalTracks({ video: selectedCamId ? { deviceId: selectedCamId } : true });
+        preCamTrackRef.current = t as LocalVideoTrack;
+      } catch (e) {
+        alert('카메라를 켤 수 없습니다: ' + (e as Error).message);
+        return;
+      }
+    } else {
+      preCamTrackRef.current?.stop();  // 트랙 stop → 카메라 표시등 꺼짐
+      preCamTrackRef.current = null;
+    }
+    setCamOn(next);
+    setPreviewTick((n) => n + 1);
+  };
+
+  const changeMic = async (deviceId: string) => {
+    setSelectedMicId(deviceId);
+    const old = preMicTrackRef.current;
+    try {
+      const [t] = await createLocalTracks({ audio: { deviceId } });
+      if (!micOn) (t as LocalAudioTrack).mute();
+      preMicTrackRef.current = t as LocalAudioTrack;
+      old?.stop();
+    } catch (e) {
+      alert('마이크 변경 실패: ' + (e as Error).message);
+    }
+  };
+
+  const changeCam = async (deviceId: string) => {
+    setSelectedCamId(deviceId);
+    if (!camOn) return;
+    const old = preCamTrackRef.current;
+    try {
+      const [t] = await createLocalTracks({ video: { deviceId } });
+      preCamTrackRef.current = t as LocalVideoTrack;
+      old?.stop();
+      setPreviewTick((n) => n + 1);
+    } catch (e) {
+      alert('카메라 변경 실패: ' + (e as Error).message);
+    }
+  };
+
+  const stopPrejoinTracks = () => {
+    preMicTrackRef.current?.stop();
+    preMicTrackRef.current = null;
+    preCamTrackRef.current?.stop();
+    preCamTrackRef.current = null;
+    if (previewRef.current) previewRef.current.innerHTML = '';
+  };
+
+  const cancelPrejoin = () => {
+    stopPrejoinTracks();
+    setMics([]);
+    setCams([]);
+    setPrejoinStatus('');
+    setPrejoinErr(false);
+    setPhase('lobby');
+  };
+
+  // ── 참여: 프리조인에서 만든 트랙을 그대로 publish ─────────────
+  const handleParticipate = async () => {
     if (joining) return;
     setJoining(true);
     try {
-      const info = await api.join(projectId, memberId, memberName);
+      const info = await api.join(projectId, memberId, memberName);  // 여기서 처음 서버 호출
       setJoinInfo(info);
       pushLog(`참여: room=${info.roomName.slice(0, 8)}… (${info.created ? '새 회의 생성' : '기존 회의 입장'})`);
 
       // adaptiveStream/dynacast 는 "보이는 요소만 구독/송출"이라 소규모 회의에서
       // 늦게 들어온 사람이 상대 카메라를 못 보는 문제를 만든다 → 끈다(항상 구독/송출).
-      const room = new Room({ adaptiveStream: false, dynacast: false });
+      // captureDefaults 로 회의 중 재활성화(setCam/MicEnabled) 때도 선택한 기기를 쓰게 한다.
+      const room = new Room({
+        adaptiveStream: false,
+        dynacast: false,
+        audioCaptureDefaults: selectedMicId ? { deviceId: selectedMicId } : undefined,
+        videoCaptureDefaults: selectedCamId ? { deviceId: selectedCamId } : undefined,
+      });
       roomRef.current = room;
       wireEvents(room);
       await room.connect(info.livekitUrl, info.token);
-      // 자동재생 차단 대비: 먼저 조용히 시도. connect 의 await 로 사용자 활성화가
-      // 만료돼 실패할 수 있으므로, 그때는 배너(needSound)로 클릭을 유도한다.
-      try { await room.startAudio(); } catch { /* 아래에서 배너로 처리 */ }
+      // 자동재생 차단 대비: 먼저 조용히 시도(프리조인에서 마이크 권한을 이미 받아 성공률이 높다).
+      try { await room.startAudio(); } catch { /* 아래 배너로 처리 */ }
       setNeedSound(!room.canPlaybackAudio);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      setMicOn(true);
+
+      // 프리조인 트랙을 재사용해 publish (setMic/CamEnabled 를 부르지 않아 이중 캡처를 막는다).
+      const micTrack = preMicTrackRef.current;
+      const camTrack = preCamTrackRef.current;
+      // 마이크(오디오)는 개인 녹음(track_published→개인 Egress→S3→SQS)의 트리거이므로 항상 publish 한다.
+      // 음소거로 참여해도 publication 은 생겨 녹음은 시작되고(무음 기록), 소리 흐름도 그대로 유지된다.
+      if (micTrack) await room.localParticipant.publishTrack(micTrack, { source: Track.Source.Microphone });
+      if (camTrack && camOn) await room.localParticipant.publishTrack(camTrack, { source: Track.Source.Camera });
+      // 소유권을 Room 으로 넘겼으니 ref 를 비운다 → 프리조인 정리가 트랙을 stop 하지 않아 카메라가 끊김 없이 이어진다.
+      preMicTrackRef.current = null;
+      preCamTrackRef.current = null;
+
       syncParticipants(room);
       setPhase('room');
     } catch (e) {
@@ -198,11 +343,22 @@ export default function App() {
     }
   };
 
+  // 회의방 진입 시 프리조인에서 켜둔 로컬 카메라를 그리드에 붙인다(그리드는 room 페이즈에만 마운트됨).
+  useEffect(() => {
+    if (phase !== 'room') return;
+    const room = roomRef.current;
+    if (!room || !camOn) return;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+    if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
+
   // ── 컨트롤 ────────────────────────────────────
   const toggleMic = async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !micOn;
+    // 이미 발행된 마이크 트랙을 mute/unmute 만 한다(publication 은 유지 → 개인 녹음이 끊기지 않는다).
     await room.localParticipant.setMicrophoneEnabled(next);
     setMicOn(next);
     syncParticipants(room);
@@ -247,12 +403,14 @@ export default function App() {
   const cleanup = () => {
     roomRef.current?.disconnect();
     roomRef.current = null;
+    stopPrejoinTracks();  // 혹시 남은 프리조인 트랙 정리(참여 성공 시엔 이미 비어 있음)
     if (videoGridRef.current) videoGridRef.current.innerHTML = '';
     document.querySelectorAll('audio[data-aid]').forEach((el) => el.remove());  // body에 붙인 원격 오디오 정리
     setParticipants([]);
     setSpeakers([]);
     setHasVideo(false);
     setNeedSound(false);
+    setScreenOn(false);
     setPhase('ended');
   };
 
@@ -301,13 +459,68 @@ export default function App() {
             </div>
           </div>
 
-          <button className="btnPrimary" onClick={handleJoin} disabled={joining}>
-            {joining ? '연결 중…' : '회의 참여'}
+          <button className="btnPrimary" onClick={openPrejoin}>
+            기기 설정하고 참여
           </button>
 
           <div className="recNotice">🔴 이 회의는 음성이 녹음됩니다.</div>
         </div>
         <p className="foot">회원 ID·이름은 로그인 세션이 없을 때만 쓰입니다.</p>
+      </div>
+    );
+  }
+
+  if (phase === 'prejoin') {
+    return (
+      <div className="app lobbyBg">
+        <div className="lobbyCard prejoinCard">
+          <div className="brand"><span className="dot" /> 참여 전 기기 설정</div>
+          <h1>카메라·마이크 확인</h1>
+          <p className="sub">참여하기 전에 사용할 기기를 고르고 켜고 끌 수 있어요.</p>
+
+          <div className="preview" ref={previewRef}>
+            {!camOn && <span className="off">📷 카메라 꺼짐</span>}
+          </div>
+
+          {prejoinStatus && <div className={`preStatus ${prejoinErr ? 'err' : ''}`}>{prejoinStatus}</div>}
+
+          <div className="toggleRow">
+            <button className={`toggleBtn ${micOn ? '' : 'off'}`} onClick={togglePreMic} disabled={!preMicTrackRef.current}>
+              {micOn ? '🎙 마이크 켜짐' : '🔇 마이크 꺼짐'}
+            </button>
+            <button className={`toggleBtn ${camOn ? '' : 'off'}`} onClick={togglePreCam}>
+              {camOn ? '📷 카메라 켜짐' : '📷 카메라 꺼짐'}
+            </button>
+          </div>
+
+          <div className="deviceRow">
+            <label>마이크
+              <select value={selectedMicId} onChange={(e) => changeMic(e.target.value)}>
+                {mics.length === 0 && <option value="">기기를 찾는 중…</option>}
+                {mics.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || '마이크'}</option>
+                ))}
+              </select>
+            </label>
+            <label>카메라
+              <select value={selectedCamId} onChange={(e) => changeCam(e.target.value)}>
+                {cams.length === 0 && <option value="">기기를 찾는 중…</option>}
+                {cams.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || '카메라'}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="btnRow">
+            <button className="btnGhost" onClick={cancelPrejoin} disabled={joining}>뒤로</button>
+            <button className="btnPrimary" onClick={handleParticipate} disabled={joining || prejoinErr}>
+              {joining ? '연결 중…' : '지금 참여'}
+            </button>
+          </div>
+
+          <div className="recNotice">🔴 이 회의는 음성이 녹음됩니다.</div>
+        </div>
       </div>
     );
   }
