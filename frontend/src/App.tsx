@@ -55,6 +55,7 @@ export default function App() {
 
   const roomRef = useRef<Room | null>(null);
   const videoGridRef = useRef<HTMLDivElement | null>(null);
+  const audioSinkRef = useRef<HTMLDivElement | null>(null);
   const startedAtRef = useRef<number>(0);
 
   const pushLog = useCallback((line: string) => {
@@ -109,11 +110,23 @@ export default function App() {
     refreshHasVideo();
   };
 
+  // 원격 오디오는 반드시 DOM에 attach 해야 실제로 소리가 난다(구독만으로는 안 들림).
+  const attachAudio = (track: RemoteTrack, id: string) => {
+    const sink = audioSinkRef.current;
+    if (!sink || track.kind !== Track.Kind.Audio) return;
+    if (sink.querySelector(`[data-aid="${id}"]`)) return;
+    const el = track.attach() as HTMLAudioElement;
+    el.dataset.aid = id;
+    el.autoplay = true;
+    sink.appendChild(el);
+  };
+
   const wireEvents = (room: Room) => {
     const resync = () => syncParticipants(room);
     room
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: Participant) => {
         if (track.kind === Track.Kind.Video) attachVideo(track, `${p.identity}-${track.sid}`, p.name || p.identity);
+        else if (track.kind === Track.Kind.Audio) attachAudio(track, `${p.identity}-${track.sid}`);
         resync();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: Participant) => {
@@ -146,6 +159,10 @@ export default function App() {
       roomRef.current = room;
       wireEvents(room);
       await room.connect(info.livekitUrl, info.token);
+      // 브라우저 자동재생 차단 대비: 입장 클릭(사용자 제스처) 안에서 오디오 재생을 명시적으로 허용.
+      if (!room.canPlaybackAudio) {
+        try { await room.startAudio(); } catch { /* 사용자가 마이크 토글 등 다음 제스처에서 재시도됨 */ }
+      }
       await room.localParticipant.setMicrophoneEnabled(true);
       setMicOn(true);
       syncParticipants(room);
@@ -302,6 +319,9 @@ export default function App() {
       <main className="stage">
         {/* 그리드는 항상 마운트 유지(교체하면 붙인 video 요소가 사라진다). 표시만 토글. */}
         <div ref={videoGridRef} className="videoGrid" style={{ display: hasVideo ? 'grid' : 'none' }} />
+
+        {/* 원격 참여자 오디오를 재생하는 숨은 싱크(여기에 attach 해야 소리가 난다). */}
+        <div ref={audioSinkRef} style={{ display: 'none' }} />
 
         <div className={`roster ${hasVideo ? 'compact' : ''}`}>
           {participants.map((p) => {
