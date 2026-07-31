@@ -55,7 +55,6 @@ export default function App() {
 
   const roomRef = useRef<Room | null>(null);
   const videoGridRef = useRef<HTMLDivElement | null>(null);
-  const audioSinkRef = useRef<HTMLDivElement | null>(null);
   const startedAtRef = useRef<number>(0);
 
   const pushLog = useCallback((line: string) => {
@@ -111,14 +110,17 @@ export default function App() {
   };
 
   // 원격 오디오는 반드시 DOM에 attach 해야 실제로 소리가 난다(구독만으로는 안 들림).
+  // 중요: 기존 참가자의 트랙은 connect() 도중, 즉 아직 phase='lobby'(회의 UI 미마운트)
+  // 상태에서 subscribe 된다. 그래서 React가 렌더한 컨테이너에 의존하지 말고, 렌더 시점과
+  // 무관하게 항상 존재하는 document.body 에 직접(숨겨서) 붙인다.
   const attachAudio = (track: RemoteTrack, id: string) => {
-    const sink = audioSinkRef.current;
-    if (!sink || track.kind !== Track.Kind.Audio) return;
-    if (sink.querySelector(`[data-aid="${id}"]`)) return;
+    if (track.kind !== Track.Kind.Audio) return;
+    if (document.querySelector(`audio[data-aid="${id}"]`)) return;
     const el = track.attach() as HTMLAudioElement;
     el.dataset.aid = id;
     el.autoplay = true;
-    sink.appendChild(el);
+    el.style.display = 'none';
+    document.body.appendChild(el);
   };
 
   const wireEvents = (room: Room) => {
@@ -224,6 +226,7 @@ export default function App() {
     roomRef.current?.disconnect();
     roomRef.current = null;
     if (videoGridRef.current) videoGridRef.current.innerHTML = '';
+    document.querySelectorAll('audio[data-aid]').forEach((el) => el.remove());  // body에 붙인 원격 오디오 정리
     setParticipants([]);
     setSpeakers([]);
     setHasVideo(false);
@@ -319,9 +322,6 @@ export default function App() {
       <main className="stage">
         {/* 그리드는 항상 마운트 유지(교체하면 붙인 video 요소가 사라진다). 표시만 토글. */}
         <div ref={videoGridRef} className="videoGrid" style={{ display: hasVideo ? 'grid' : 'none' }} />
-
-        {/* 원격 참여자 오디오를 재생하는 숨은 싱크(여기에 attach 해야 소리가 난다). */}
-        <div ref={audioSinkRef} style={{ display: 'none' }} />
 
         <div className={`roster ${hasVideo ? 'compact' : ''}`}>
           {participants.map((p) => {
