@@ -8,7 +8,12 @@ rtc:
   # WebRTC 미디어 UDP 포트 범위 (docker-compose 에서 열어줌)
   port_range_start: 50000
   port_range_end: 50060
-  use_external_ip: false      # EC2 공인망 배포 시 true + node_ip 설정 권장
+  # 공인망(EC2 등)에서 브라우저가 미디어를 받으려면 반드시 true.
+  # false 면 사설 IP 만 ICE 후보로 광고돼 서버→브라우저 오디오가 도착하지 않는다
+  # (발행/녹음은 되지만 상대 목소리가 안 들림). true 면 STUN 으로 공인 IP 를
+  # 탐지해 후보로 광고하고, 호스트 후보도 함께 나가 로컬 테스트도 유지된다.
+  # 고정 IP 를 알면 대신 node_ip: <공인 IP> 를 명시해도 된다.
+  use_external_ip: true
 
 redis:
   address: redis:6379         # Egress 와 메시지 버스를 공유

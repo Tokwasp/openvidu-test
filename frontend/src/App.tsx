@@ -130,6 +130,8 @@ export default function App() {
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: Participant) => {
         if (track.kind === Track.Kind.Video) attachVideo(track, `${p.identity}-${track.sid}`, p.name || p.identity);
         else if (track.kind === Track.Kind.Audio) attachAudio(track, `${p.identity}-${track.sid}`);
+        // 진단용: 오디오가 구독되는데도 안 들리면 자동재생/미디어 전송(use_external_ip) 쪽 문제.
+        pushLog(`구독: ${p.name || p.identity} ${track.kind} (재생가능=${room.canPlaybackAudio})`);
         resync();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: Participant) => {
