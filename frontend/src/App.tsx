@@ -343,13 +343,28 @@ export default function App() {
     }
   };
 
-  // 회의방 진입 시 프리조인에서 켜둔 로컬 카메라를 그리드에 붙인다(그리드는 room 페이즈에만 마운트됨).
+  // 회의방 진입 시 그리드(room 페이즈에만 마운트됨)에 이미 확보된 비디오들을 붙인다.
   useEffect(() => {
     if (phase !== 'room') return;
     const room = roomRef.current;
-    if (!room || !camOn) return;
-    const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
-    if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
+    if (!room) return;
+
+    // 1) 프리조인에서 켜둔 로컬 카메라
+    if (camOn) {
+      const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
+    }
+
+    // 2) 나중에 입장한 경우, 기존 참가자의 비디오는 connect() 도중(그리드 미마운트 상태)에
+    //    이미 구독돼 TrackSubscribed 가 그리드를 못 찾고 지나간다. 여기서 다시 붙여준다
+    //    (카메라·화면공유 모두 포함). attachVideo 는 멱등이라 중복 부착되지 않는다.
+    for (const p of room.remoteParticipants.values()) {
+      for (const pub of p.trackPublications.values()) {
+        if (pub.track?.kind === Track.Kind.Video) {
+          attachVideo(pub.track, `${p.identity}-${pub.track.sid}`, p.name || p.identity);
+        }
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
