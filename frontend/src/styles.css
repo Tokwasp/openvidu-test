@@ -82,6 +82,63 @@ button { font-family: inherit; cursor: pointer; }
 .foot { margin-top: 18px; color: var(--muted); font-size: 12px; }
 .endedIcon { font-size: 48px; margin-bottom: 8px; }
 
+/* ── 프리조인(기기 설정) ─────────────────── */
+.prejoinCard { max-width: 480px; }
+.preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.preview .off { color: var(--muted); font-size: 14px; }
+.preStatus { font-size: 13px; color: var(--muted); margin-bottom: 12px; min-height: 18px; }
+.preStatus.err { color: #fecaca; }
+.toggleRow { display: flex; gap: 10px; margin-bottom: 14px; }
+.toggleBtn {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.toggleBtn.off { border-color: var(--danger); background: rgba(239, 68, 68, 0.15); color: #fecaca; }
+.toggleBtn:disabled { opacity: 0.5; cursor: default; }
+.deviceRow { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+.deviceRow label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+.deviceRow select {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+.deviceRow select:focus { border-color: var(--primary); }
+.btnRow { display: flex; gap: 10px; }
+.btnRow .btnPrimary { flex: 1; width: auto; }
+.btnGhost {
+  flex: 0 0 auto;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 14px 18px;
+  font-size: 15px;
+  transition: background 0.15s;
+}
+.btnGhost:hover { background: var(--line); }
+.btnGhost:disabled { opacity: 0.6; cursor: default; }
+
 /* ── 회의방 ─────────────────────────────── */
 .roomBg { background: var(--bg); }
 .topbar {
