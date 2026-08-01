@@ -24,9 +24,12 @@ export function join(projectId: number, memberId: number, memberName: string) {
   }).then((r) => unwrap<JoinResponse>(r));
 }
 
-// 회의 종료(방장) — roomName 으로 deleteRoom. Redis 는 room_finished 웹훅이 닫는다.
-export function endMeeting(roomName: string) {
-  return fetch(`/api/meetings/${roomName}`, { method: 'DELETE', credentials: 'include' }).then((r) =>
+// 회의 종료(방장만) — roomName 으로 deleteRoom. Redis 는 room_finished 웹훅이 닫는다.
+// memberId 는 join 과 동일하게 dev-auth-bypass(세션 없을 때) 용. 운영은 세션에서 회원을 읽으므로 무시된다.
+// 방장이 아니면 백엔드가 403 을 준다.
+export function endMeeting(roomName: string, memberId: number) {
+  const q = new URLSearchParams({ memberId: String(memberId) }).toString();
+  return fetch(`/api/meetings/${roomName}?${q}`, { method: 'DELETE', credentials: 'include' }).then((r) =>
     unwrap<void>(r),
   );
 }
