@@ -355,16 +355,32 @@ export default function App() {
       if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
     }
 
-    // 2) 나중에 입장한 경우, 기존 참가자의 비디오는 connect() 도중(그리드 미마운트 상태)에
-    //    이미 구독돼 TrackSubscribed 가 그리드를 못 찾고 지나간다. 여기서 다시 붙여준다
-    //    (카메라·화면공유 모두 포함). attachVideo 는 멱등이라 중복 부착되지 않는다.
-    for (const p of room.remoteParticipants.values()) {
-      for (const pub of p.trackPublications.values()) {
-        if (pub.track?.kind === Track.Kind.Video) {
-          attachVideo(pub.track, `${p.identity}-${pub.track.sid}`, p.name || p.identity);
+    // 2) 나중에 입장한 경우, 기존 참가자의 비디오가 늦게 들어온 쪽에서 안 보이는 문제.
+    //    - connect() 도중(그리드 미마운트)에 구독된 트랙은 TrackSubscribed 가 그리드를 못 찾고 지나간다.
+    //    - 아직 구독조차 안 된 트랙은 track 이 null 이라 붙일 것도 없다.
+    //    그래서 (a) 원격 비디오를 명시적으로 구독 요청하고, (b) 이미 붙은 track 은 그리드에 다시 붙인다.
+    //    미디어가 늦게 도착하는 경우를 대비해 잠깐 재시도한다. attachVideo 는 멱등이라 중복되지 않는다.
+    const attachRemoteVideos = () => {
+      for (const p of room.remoteParticipants.values()) {
+        for (const pub of p.trackPublications.values()) {
+          if (pub.kind !== Track.Kind.Video) continue;
+          if (!pub.isSubscribed) {
+            (pub as RemoteTrackPublication).setSubscribed(true);  // 안전망: 강제 구독
+          }
+          if (pub.track) {
+            attachVideo(pub.track, `${p.identity}-${pub.track.sid}`, p.name || p.identity);
+          }
         }
       }
-    }
+    };
+
+    attachRemoteVideos();
+    const retry = setInterval(attachRemoteVideos, 600);
+    const stopRetry = setTimeout(() => clearInterval(retry), 4000);
+    return () => {
+      clearInterval(retry);
+      clearTimeout(stopRetry);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -431,13 +447,20 @@ export default function App() {
 
   const handleLeave = () => cleanup();
 
+  // 회의 종료는 방장만 가능하다. 서버가 거부(403)하면 방을 닫지 않고 사용자에게 알린다.
+  // 성공했을 때만 로컬 정리 → "방장 아닌 사람이 눌러도 방이 닫히는" 착시를 없앤다.
   const handleEndMeeting = async () => {
-    if (joinInfo) {
-      try {
-        await api.endMeeting(joinInfo.roomName);
-      } catch (e) {
-        pushLog('종료 요청 오류: ' + (e as Error).message);
-      }
+    if (!joinInfo) {
+      cleanup();
+      return;
+    }
+    try {
+      await api.endMeeting(joinInfo.roomName, memberId);
+    } catch (e) {
+      const message = (e as Error).message;
+      pushLog('종료 요청 거부됨: ' + message);
+      alert(message || '회의 방장만 종료할 수 있습니다. 나가려면 "나가기"를 눌러 주세요.');
+      return;
     }
     cleanup();
   };
