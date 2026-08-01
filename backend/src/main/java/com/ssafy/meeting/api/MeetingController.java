@@ -25,10 +25,11 @@ public class MeetingController {
         return ApiResponse.ok(response);
     }
 
-    /** 회의 종료 버튼: deleteRoom만. Redis 는 room_finished 웹훅이 닫는다 (01 §5). */
+    /** 회의 종료 버튼: 방장만 종료 가능. deleteRoom만, Redis 는 room_finished 웹훅이 닫는다 (01 §5). */
     @DeleteMapping("/api/meetings/{roomName}")
-    public ApiResponse<Void> end(@PathVariable String roomName) {
-        meetingService.end(roomName);
+    public ApiResponse<Void> end(@PathVariable String roomName,
+                                 @Login LoginMember member) {
+        meetingService.end(roomName, member.getId());
         return ApiResponse.ok(null);
     }
 }
