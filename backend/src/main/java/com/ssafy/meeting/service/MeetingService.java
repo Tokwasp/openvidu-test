@@ -1,8 +1,6 @@
 package com.ssafy.meeting.service;
 
 import com.ssafy.meeting.api.dto.JoinResponse;
-import com.ssafy.meeting.common.exception.CustomException;
-import com.ssafy.meeting.common.exception.MeetingErrorCode;
 import com.ssafy.meeting.config.LiveKitProperties;
 import io.livekit.server.RoomServiceClient;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +36,7 @@ public class MeetingService {
             created = false;
             log.info("[Join] 기존 회의 재사용 project={} room={}", projectId, roomName);
         } else {
-            roomName = openNewRoom(projectId, memberId);
+            roomName = openNewRoom(projectId);
             created = true;
         }
 
@@ -54,16 +52,16 @@ public class MeetingService {
      * createRoom 이 실패하면 못 들어가는 방이 Redis 에 남지 않도록 등록을 되돌린다.
      * 동시 첫 입장으로 방이 둘 생기는 것은 이 규모에서 방어하지 않는다(01 §2).
      */
-    private String openNewRoom(int projectId, int ownerId) {
+    private String openNewRoom(int projectId) {
         String roomName = UUID.randomUUID().toString();   // 회의마다 새 UUID (녹음 폴더의 자연 키)
-        roomRegistry.open(projectId, roomName, ownerId);  // 방을 처음 만든 사람이 방장
+        roomRegistry.open(projectId, roomName);
         try {
             createRoom(roomName);
         } catch (RuntimeException e) {
             roomRegistry.closeByRoom(roomName);           // 방 생성 실패 → Redis 등록 롤백
             throw e;
         }
-        log.info("[Join] 새 회의 생성 project={} room={} owner={}", projectId, roomName, ownerId);
+        log.info("[Join] 새 회의 생성 project={} room={}", projectId, roomName);
         return roomName;
     }
 
@@ -90,28 +88,8 @@ public class MeetingService {
         }
     }
 
-    /**
-     * "회의 종료" 버튼 — 방장만 종료할 수 있다. deleteRoom만 요청하고
-     * Redis 는 room_finished 웹훅이 닫는다 (01 §5·§6).
-     */
-    public void end(String roomName, int requesterId) {
-        int ownerId = roomRegistry.findOwner(roomName)
-                .orElseThrow(() -> new CustomException(MeetingErrorCode.ROOM_NOT_FOUND));
-        if (ownerId != requesterId) {
-            throw new CustomException(MeetingErrorCode.NOT_ROOM_OWNER);
-        }
-        deleteRoom(roomName);
-    }
-
-    /**
-     * 방장 퇴장 웹훅용 강제 종료 — 권한 검증은 웹훅이 방장 여부로 이미 끝냈다.
-     * 방장이 나가면 회의를 통째로 닫는다(01: 방장 나가면 전원 종료).
-     */
-    public void closeRoom(String roomName) {
-        deleteRoom(roomName);
-    }
-
-    private void deleteRoom(String roomName) {
+    /** "회의 종료" 버튼 — deleteRoom만. Redis 는 room_finished 웹훅이 닫는다 (01 §5·§6). */
+    public void end(String roomName) {
         try {
             roomServiceClient.deleteRoom(roomName).execute();
             log.info("[End] deleteRoom 요청 room={} (webhook이 Redis를 닫음)", roomName);

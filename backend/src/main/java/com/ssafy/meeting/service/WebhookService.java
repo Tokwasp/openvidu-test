@@ -31,7 +31,6 @@ public class WebhookService {
     private final RoomRegistry roomRegistry;
     private final EgressService egressService;
     private final RecordingEventPublisher recordingEventPublisher;
-    private final MeetingService meetingService;
 
     /** 개인 Egress 를 이미 시작한 (room|memberId) 집합 — 중복 시작 방지. */
     private final Set<String> startedParticipantEgress = ConcurrentHashMap.newKeySet();
@@ -40,10 +39,9 @@ public class WebhookService {
         String type = event.getEvent();
         log.info("[Webhook] event={}", type);
         switch (type) {
-            case "room_started"     -> onRoomStarted(event.getRoom());
-            case "track_published"  -> onTrackPublished(event.getRoom(), event.getParticipant(), event.getTrack());
-            case "participant_left" -> onParticipantLeft(event.getRoom(), event.getParticipant());
-            case "room_finished"    -> onRoomFinished(event.getRoom());
+            case "room_started"    -> onRoomStarted(event.getRoom());
+            case "track_published" -> onTrackPublished(event.getRoom(), event.getParticipant(), event.getTrack());
+            case "room_finished"   -> onRoomFinished(event.getRoom());
             case "egress_ended"    -> onEgressEnded(event.getEgressInfo());
             default -> log.debug("[Webhook] 처리 안 함: {}", type);
         }
@@ -85,28 +83,6 @@ public class WebhookService {
             startedParticipantEgress.remove(key); // 실패 → 다음 발행 때 재시도 가능하도록
             log.warn("[Egress] participant 시작 실패(재시도 가능) member={}: {}", memberId, e.getMessage());
         }
-    }
-
-    /**
-     * 참가자 퇴장 → 방장이 나갔으면 회의를 통째로 종료한다(방장 나가면 전원 종료).
-     * deleteRoom 이 room_finished 웹훅을 쏘고, 그 웹훅이 Redis 를 닫는다(기존 경로 재사용).
-     */
-    private void onParticipantLeft(LivekitModels.Room room, LivekitModels.ParticipantInfo participant) {
-        if (!isOurRoom(room.getName())) {
-            return;
-        }
-        Integer leaver = parseMemberId(participant.getIdentity());
-        if (leaver == null || !isOwner(room.getName(), leaver)) {
-            return;
-        }
-        log.info("[Webhook] 방장 퇴장 → 회의 종료 room={} owner={}", room.getName(), leaver);
-        meetingService.closeRoom(room.getName());
-    }
-
-    private boolean isOwner(String roomName, int memberId) {
-        return roomRegistry.findOwner(roomName)
-                .map(ownerId -> ownerId == memberId)
-                .orElse(false);
     }
 
     /** 방 종료 → Redis 방 상태 닫기(멱등) + 개인 Egress 시작 표시 정리. */
