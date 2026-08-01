@@ -1,12 +1,16 @@
 package com.ssafy.meeting.service;
 
 import com.ssafy.meeting.api.dto.JoinResponse;
+import com.ssafy.meeting.common.exception.CustomException;
+import com.ssafy.meeting.common.exception.MeetingErrorCode;
 import com.ssafy.meeting.config.LiveKitProperties;
 import io.livekit.server.RoomServiceClient;
+import livekit.LivekitModels;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -34,6 +38,11 @@ public class MeetingService {
             // 있음 → 아무것도 만들지 않는다. 토큰만 새로 서명.
             roomName = existing;
             created = false;
+            // 토큰 identity = memberId 라, 같은 회원이 또 들어오면 LiveKit 이 먼저 있던 참가자를
+            // 강제로 내보낸다(중복 identity). 그 전에 join 을 막아 안내한다.
+            if (isAlreadyParticipant(roomName, memberId)) {
+                throw new CustomException(MeetingErrorCode.ALREADY_JOINED);
+            }
             log.info("[Join] 기존 회의 재사용 project={} room={}", projectId, roomName);
         } else {
             roomName = openNewRoom(projectId);
@@ -42,6 +51,25 @@ public class MeetingService {
 
         String token = tokenService.issue(memberId, memberName, roomName);
         return new JoinResponse(roomName, token, liveKit.wsUrl(), created);
+    }
+
+    /**
+     * 그 방에 이미 memberId(=토큰 identity)인 참가자가 접속해 있는지.
+     * 조회 자체가 실패하면 막지 않는다(가용성 우선 — 조회 오류로 입장을 못 하게 하지 않는다).
+     */
+    private boolean isAlreadyParticipant(String roomName, int memberId) {
+        String identity = String.valueOf(memberId);
+        try {
+            List<LivekitModels.ParticipantInfo> participants =
+                    roomServiceClient.listParticipants(roomName).execute().body();
+            if (participants == null) {
+                return false;
+            }
+            return participants.stream().anyMatch(p -> identity.equals(p.getIdentity()));
+        } catch (Exception e) {
+            log.warn("[Join] 참가자 조회 실패(무시하고 진행) room={}: {}", roomName, e.getMessage());
+            return false;
+        }
     }
 
     /**
