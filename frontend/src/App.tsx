@@ -355,18 +355,17 @@ export default function App() {
       if (pub?.track) attachVideo(pub.track, 'local-cam', '나');
     }
 
-    // 2) 나중에 입장한 경우, 기존 참가자의 비디오가 늦게 들어온 쪽에서 안 보이는 문제.
-    //    - connect() 도중(그리드 미마운트)에 구독된 트랙은 TrackSubscribed 가 그리드를 못 찾고 지나간다.
-    //    - 아직 구독조차 안 된 트랙은 track 이 null 이라 붙일 것도 없다.
-    //    그래서 (a) 원격 비디오를 명시적으로 구독 요청하고, (b) 이미 붙은 track 은 그리드에 다시 붙인다.
-    //    미디어가 늦게 도착하는 경우를 대비해 잠깐 재시도한다. attachVideo 는 멱등이라 중복되지 않는다.
+    // 2) 나중에 입장한 경우, 기존 참가자(먼저 들어와 이미 카메라·화면공유를 발행한)의
+    //    영상이 늦게 들어온 쪽에서 안 보이는 문제 대응:
+    //    - 아직 구독 안 됐으면 강제 구독(setSubscribed)
+    //    - 트랙이 도착해 있으면 그리드에 부착(attachVideo 는 멱등)
+    //    미디어가 늦게 도착할 수 있어 잠깐(10초) 재시도한다.
     const attachRemoteVideos = () => {
       for (const p of room.remoteParticipants.values()) {
         for (const pub of p.trackPublications.values()) {
           if (pub.kind !== Track.Kind.Video) continue;
-          if (!pub.isSubscribed) {
-            (pub as RemoteTrackPublication).setSubscribed(true);  // 안전망: 강제 구독
-          }
+          const rpub = pub as RemoteTrackPublication;
+          if (!rpub.isSubscribed) rpub.setSubscribed(true);  // 안전망: 강제 구독
           if (pub.track) {
             attachVideo(pub.track, `${p.identity}-${pub.track.sid}`, p.name || p.identity);
           }
@@ -375,12 +374,28 @@ export default function App() {
     };
 
     attachRemoteVideos();
-    const retry = setInterval(attachRemoteVideos, 600);
-    const stopRetry = setTimeout(() => clearInterval(retry), 4000);
-    return () => {
+    let ticks = 0;
+    const retry = setInterval(() => {
+      attachRemoteVideos();
+      if (++ticks < 20) return;   // 0.5초 × 20 = 10초
       clearInterval(retry);
-      clearTimeout(stopRetry);
-    };
+      // 진단: 10초 뒤에도 안 붙은 원격 영상이 있으면 원인을 로그로 남긴다.
+      //   sub=false           → 구독 자체 실패(서버/권한)
+      //   sub=true, track=false→ 구독은 됐지만 미디어 미도착(미디어 전송/방화벽)
+      //   sub=true, track=true → 부착 로직 문제
+      const grid = videoGridRef.current;
+      for (const p of room.remoteParticipants.values()) {
+        for (const pub of p.trackPublications.values()) {
+          if (pub.kind !== Track.Kind.Video) continue;
+          const rpub = pub as RemoteTrackPublication;
+          const tid = `${p.identity}-${pub.track?.sid}`;
+          if (!grid?.querySelector(`[data-tid="${tid}"]`)) {
+            pushLog(`[영상없음] ${p.name || p.identity} src=${pub.source} sub=${rpub.isSubscribed} track=${!!pub.track}`);
+          }
+        }
+      }
+    }, 500);
+    return () => clearInterval(retry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -447,20 +462,13 @@ export default function App() {
 
   const handleLeave = () => cleanup();
 
-  // 회의 종료는 방장만 가능하다. 서버가 거부(403)하면 방을 닫지 않고 사용자에게 알린다.
-  // 성공했을 때만 로컬 정리 → "방장 아닌 사람이 눌러도 방이 닫히는" 착시를 없앤다.
   const handleEndMeeting = async () => {
-    if (!joinInfo) {
-      cleanup();
-      return;
-    }
-    try {
-      await api.endMeeting(joinInfo.roomName, memberId);
-    } catch (e) {
-      const message = (e as Error).message;
-      pushLog('종료 요청 거부됨: ' + message);
-      alert(message || '회의 방장만 종료할 수 있습니다. 나가려면 "나가기"를 눌러 주세요.');
-      return;
+    if (joinInfo) {
+      try {
+        await api.endMeeting(joinInfo.roomName);
+      } catch (e) {
+        pushLog('종료 요청 오류: ' + (e as Error).message);
+      }
     }
     cleanup();
   };
@@ -630,10 +638,10 @@ export default function App() {
           <span className="ci">🖥</span><span>화면공유</span>
         </button>
         <button className="ctrl leave" onClick={handleLeave}>
-          <span className="ci">🚪</span><span>나가기</span>
+          <span className="ci">🚪</span><span>방 나가기</span>
         </button>
         <button className="ctrl end" onClick={handleEndMeeting}>
-          <span className="ci">⛔</span><span>회의 종료</span>
+          <span className="ci">⛔</span><span>모두 떠나기</span>
         </button>
       </footer>
 
