@@ -25,6 +25,7 @@ public class RoomRegistry {
 
     private static final String PROJECT_KEY = "meeting:project:";
     private static final String ROOM_KEY = "meeting:room:";
+    private static final String OWNER_SUFFIX = ":owner";
     private static final Duration TTL = Duration.ofHours(2);
 
     private final StringRedisTemplate redis;
@@ -39,10 +40,17 @@ public class RoomRegistry {
         return Boolean.TRUE.equals(redis.hasKey(ROOM_KEY + roomName));
     }
 
-    /** 새 방을 연다 — 정방향/역방향 키를 함께 심는다. */
-    public void open(int projectId, String roomName) {
+    /** 방을 만든 회원(방장) ID. 종료 권한 판단과 방장 퇴장 감지에 쓴다. */
+    public Optional<Integer> findOwner(String roomName) {
+        String ownerId = redis.opsForValue().get(ownerKey(roomName));
+        return ownerId == null ? Optional.empty() : Optional.of(Integer.parseInt(ownerId));
+    }
+
+    /** 새 방을 연다 — 정방향/역방향 키와 방장 키를 함께 심는다. */
+    public void open(int projectId, String roomName, int ownerId) {
         redis.opsForValue().set(PROJECT_KEY + projectId, roomName, TTL);
         redis.opsForValue().set(ROOM_KEY + roomName, String.valueOf(projectId), TTL);
+        redis.opsForValue().set(ownerKey(roomName), String.valueOf(ownerId), TTL);
     }
 
     /**
@@ -58,5 +66,10 @@ public class RoomRegistry {
             }
         }
         redis.delete(ROOM_KEY + roomName);
+        redis.delete(ownerKey(roomName));
+    }
+
+    private String ownerKey(String roomName) {
+        return ROOM_KEY + roomName + OWNER_SUFFIX;
     }
 }
