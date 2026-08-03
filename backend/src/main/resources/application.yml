@@ -21,6 +21,12 @@ spring:
     redis:
       namespace: ${SESSION_NAMESPACE:spring:session}   # 모놀리식이 커스텀했으면 맞춘다
 
+# ── 회의 서비스 옵션 ──────────────────────────────────────────
+meeting:
+  # true 면 세션 없이도 쿼리 memberId 로 참여(개발/단독 테스트용). 운영에선 반드시 false.
+  # 지금은 세션 공유(도메인) 문제로 테스트가 막혀 임시로 기본 true. 운영 배포 전 false 로 되돌릴 것.
+  dev-auth-bypass: ${MEETING_DEV_AUTH_BYPASS:true}
+
 # ── LiveKit(OpenVidu3) 접속 정보 ──────────────────────────────
 livekit:
   # 브라우저가 WebRTC로 붙는 주소 (프론트에 그대로 내려줌)
