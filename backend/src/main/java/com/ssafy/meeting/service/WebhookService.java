@@ -105,9 +105,13 @@ public class WebhookService {
         String roomName = info.getRoomName();
         boolean mixed = isMixed(objectKey);
         Integer memberId = mixed ? null : parseMemberFromKey(objectKey);
+        // projectId 는 개인·단체 모두 roomName 역인덱스로 조회한다. 역인덱스는 room_finished
+        // 후에도 TTL 까지 남으므로, 방이 닫힌 뒤 오는 단체 mixed egress_ended 도 값을 얻는다.
+        Integer projectId = roomRegistry.findProjectId(roomName).orElse(null);
 
         recordingEventPublisher.publish(new RecordingEvent(
                 roomName,
+                projectId,
                 memberId,
                 mixed ? "MIXED" : "PARTICIPANT",
                 objectKey,
