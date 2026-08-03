@@ -1,6 +1,5 @@
 package com.ssafy.meeting.config;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
@@ -17,10 +16,6 @@ import java.util.List;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    /** 개발용 세션 우회 스위치 — true 면 세션 없어도 쿼리 memberId 로 참여. 운영 기본 false. */
-    @Value("${meeting.dev-auth-bypass:false}")
-    private boolean devAuthBypass;
-
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
@@ -32,6 +27,6 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addArgumentResolvers(List<HandlerMethodArgumentResolver> resolvers) {
-        resolvers.add(new LoginMemberArgumentResolver(devAuthBypass));
+        resolvers.add(new LoginMemberArgumentResolver());
     }
 }
