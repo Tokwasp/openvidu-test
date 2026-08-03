@@ -39,6 +39,15 @@ public class RoomRegistry {
         return Boolean.TRUE.equals(redis.hasKey(ROOM_KEY + roomName));
     }
 
+    /**
+     * roomName 으로 projectId 를 되찾는다(역인덱스). 방이 이미 닫혔으면 비어 있음.
+     * 개인 Egress 는 방이 살아있을 때 끝나므로 egress_ended 시점에 값이 있다.
+     */
+    public Optional<Integer> findProjectId(String roomName) {
+        return Optional.ofNullable(redis.opsForValue().get(ROOM_KEY + roomName))
+                .map(Integer::valueOf);
+    }
+
     /** 새 방을 연다 — 정방향/역방향 키를 함께 심는다. */
     public void open(int projectId, String roomName) {
         redis.opsForValue().set(PROJECT_KEY + projectId, roomName, TTL);

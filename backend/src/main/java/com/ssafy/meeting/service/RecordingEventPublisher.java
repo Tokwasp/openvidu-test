@@ -33,8 +33,8 @@ public class RecordingEventPublisher {
         try {
             String body = objectMapper.writeValueAsString(event);
             sqsClient.sendMessage(b -> b.queueUrl(url).messageBody(body));
-            log.info("[SQS] 발행 room={} member={} kind={} key={}",
-                    event.roomName(), event.memberId(), event.kind(), event.objectKey());
+            log.info("[SQS] 발행 room={} project={} member={} kind={} key={}",
+                    event.roomName(), event.projectId(), event.memberId(), event.kind(), event.objectKey());
         } catch (Exception e) {
             log.warn("[SQS] 발행 실패(무시): {}", e.getMessage());
         }
