@@ -102,6 +102,15 @@ public class WebhookService {
             return;
         }
         String objectKey = info.getFileResults(0).getFilename();
+        if (objectKey == null || objectKey.isBlank()) {
+            // file_results 엔트리는 있으나 filename 이 비어 있는 egress.
+            // 개인(트랙) egress 가 실제 오디오를 기록하기 전에 참가자가 나가거나 연결이 끊겨
+            // 파일이 S3 에 만들어지지 않은 채 종료(EGRESS_ABORTED/FAILED)된 경우가 대부분이다.
+            // 빈 objectKey 로 발행하면 소비자가 빈 S3 키를 못 받아 무한 재시도하므로 발행하지 않는다.
+            log.warn("[Webhook] egress_ended objectKey 비어 있음 → 발행 생략 egressId={} room={} status={} error={}",
+                    info.getEgressId(), info.getRoomName(), info.getStatus(), info.getError());
+            return;
+        }
         String roomName = info.getRoomName();
         boolean mixed = isMixed(objectKey);
         Integer memberId = mixed ? null : parseMemberFromKey(objectKey);
