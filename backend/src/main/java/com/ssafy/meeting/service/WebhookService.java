@@ -117,11 +117,14 @@ public class WebhookService {
         // projectId 는 개인·단체 모두 roomName 역인덱스로 조회한다. 역인덱스는 room_finished
         // 후에도 TTL 까지 남으므로, 방이 닫힌 뒤 오는 단체 mixed egress_ended 도 값을 얻는다.
         Integer projectId = roomRegistry.findProjectId(roomName).orElse(null);
+        // creator(방 만든 사람)는 단체(MIXED) 메시지에만 담는다. 개인(PARTICIPANT)은 null.
+        Integer creatorId = mixed ? roomRegistry.findCreatorByRoom(roomName).orElse(null) : null;
 
         recordingEventPublisher.publish(new RecordingEvent(
                 roomName,
                 projectId,
                 memberId,
+                creatorId,
                 mixed ? "MIXED" : "PARTICIPANT",
                 objectKey,
                 info.getEgressId(),

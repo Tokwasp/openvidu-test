@@ -8,11 +8,14 @@ package com.ssafy.meeting.service;
  * @param projectId 회의가 속한 프로젝트 id. 개인·단체 모두 roomName 역인덱스(Redis)로 채운다.
  *                  역인덱스가 TTL 마저 지나 사라졌으면 드물게 null 일 수 있다.
  * @param memberId  PARTICIPANT 일 때만 채워짐(MIXED 는 null)
+ * @param creatorId 그 회의(채팅방)를 만든 회원 id. MIXED(단체) 일 때만 채워짐(PARTICIPANT 는 null).
+ *                  역인덱스로 조회하며, 유예 TTL 마저 지났으면 드물게 null 일 수 있다.
  */
 public record RecordingEvent(
         String roomName,
         Integer projectId,
         Integer memberId,
+        Integer creatorId,
         String kind,
         String objectKey,
         String egressId,
