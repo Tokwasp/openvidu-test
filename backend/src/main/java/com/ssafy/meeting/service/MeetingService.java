@@ -45,7 +45,7 @@ public class MeetingService {
             }
             log.info("[Join] 기존 회의 재사용 project={} room={}", projectId, roomName);
         } else {
-            roomName = openNewRoom(projectId);
+            roomName = openNewRoom(projectId, memberId);
             created = true;
         }
 
@@ -80,9 +80,9 @@ public class MeetingService {
      * createRoom 이 실패하면 못 들어가는 방이 Redis 에 남지 않도록 등록을 되돌린다.
      * 동시 첫 입장으로 방이 둘 생기는 것은 이 규모에서 방어하지 않는다(01 §2).
      */
-    private String openNewRoom(int projectId) {
+    private String openNewRoom(int projectId, int creatorId) {
         String roomName = UUID.randomUUID().toString();   // 회의마다 새 UUID (녹음 폴더의 자연 키)
-        roomRegistry.open(projectId, roomName);
+        roomRegistry.open(projectId, roomName, creatorId);
         try {
             createRoom(roomName);
         } catch (RuntimeException e) {

@@ -12,8 +12,9 @@ import java.util.Optional;
  * DB 행이 아니라 Redis 키로 표현한다.
  *
  * <pre>
- *   meeting:project:{projectId} → roomName   (조인 시 이 키로 방 유무 판단)
- *   meeting:room:{roomName}     → projectId   (웹훅은 roomName만 아므로 역인덱스)
+ *   meeting:project:{projectId} → Hash{room: roomName, creator: memberId}
+ *                                            (조인 시 room 필드로 방 유무 판단, creator 는 방을 연 회원)
+ *   meeting:room:{roomName}     → projectId  (웹훅은 roomName만 아므로 역인덱스)
  * </pre>
  *
  * 회의는 길어야 2시간이라 TTL 을 안전망으로 둔다(웹훅 유실 시 자동 정리).
@@ -27,6 +28,8 @@ public class RoomRegistry {
 
     private static final String PROJECT_KEY = "meeting:project:";
     private static final String ROOM_KEY = "meeting:room:";
+    private static final String FIELD_ROOM = "room";
+    private static final String FIELD_CREATOR = "creator";
     private static final Duration TTL = Duration.ofHours(2);
     /** 방 종료 후 역인덱스를 남겨두는 유예 시간 — 뒤늦게 오는 단체 egress_ended 가 projectId 를 얻을 창. */
     private static final Duration REVERSE_INDEX_GRACE = Duration.ofMinutes(10);
@@ -35,7 +38,13 @@ public class RoomRegistry {
 
     /** 프로젝트에 열린 방이 있으면 그 roomName. */
     public Optional<String> findRoom(int projectId) {
-        return Optional.ofNullable(redis.opsForValue().get(PROJECT_KEY + projectId));
+        return Optional.ofNullable(redis.<String, String>opsForHash().get(PROJECT_KEY + projectId, FIELD_ROOM));
+    }
+
+    /** 그 프로젝트의 열린 방을 만든(처음 연) 회원 id. 방이 없으면 비어 있음. */
+    public Optional<Integer> findCreator(int projectId) {
+        return Optional.ofNullable(redis.<String, String>opsForHash().get(PROJECT_KEY + projectId, FIELD_CREATOR))
+                .map(Integer::valueOf);
     }
 
     /** roomName 이 우리(이 서비스가 연) 방인지. 웹훅이 남의 방 이벤트를 거를 때 쓴다. */
@@ -53,9 +62,12 @@ public class RoomRegistry {
                 .map(Integer::valueOf);
     }
 
-    /** 새 방을 연다 — 정방향/역방향 키를 함께 심는다. */
-    public void open(int projectId, String roomName) {
-        redis.opsForValue().set(PROJECT_KEY + projectId, roomName, TTL);
+    /** 새 방을 연다 — 순방향 키(roomName·creator)와 역방향 키를 함께 심는다. */
+    public void open(int projectId, String roomName, int creatorId) {
+        String projectKey = PROJECT_KEY + projectId;
+        redis.opsForHash().put(projectKey, FIELD_ROOM, roomName);
+        redis.opsForHash().put(projectKey, FIELD_CREATOR, String.valueOf(creatorId));
+        redis.expire(projectKey, TTL);
         redis.opsForValue().set(ROOM_KEY + roomName, String.valueOf(projectId), TTL);
     }
 
@@ -72,7 +84,7 @@ public class RoomRegistry {
     public void closeByRoom(String roomName) {
         String projectId = redis.opsForValue().get(ROOM_KEY + roomName);
         if (projectId != null) {
-            String current = redis.opsForValue().get(PROJECT_KEY + projectId);
+            String current = redis.<String, String>opsForHash().get(PROJECT_KEY + projectId, FIELD_ROOM);
             if (roomName.equals(current)) {
                 redis.delete(PROJECT_KEY + projectId);
             }
