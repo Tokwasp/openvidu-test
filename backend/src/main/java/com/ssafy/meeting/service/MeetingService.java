@@ -34,6 +34,7 @@ public class MeetingService {
 
         String roomName;
         boolean created;
+        int creatorId;
         if (existing != null) {
             // 있음 → 아무것도 만들지 않는다. 토큰만 새로 서명.
             roomName = existing;
@@ -43,14 +44,17 @@ public class MeetingService {
             if (isAlreadyParticipant(roomName, memberId)) {
                 throw new CustomException(MeetingErrorCode.ALREADY_JOINED);
             }
+            // 방을 처음 연 회원 — Redis 에 저장돼 있다. 유실 시엔 요청자를 대신 쓴다(가용성 우선).
+            creatorId = roomRegistry.findCreator(projectId).orElse(memberId);
             log.info("[Join] 기존 회의 재사용 project={} room={}", projectId, roomName);
         } else {
             roomName = openNewRoom(projectId, memberId);
             created = true;
+            creatorId = memberId;   // 방을 새로 연 사람이 곧 creator
         }
 
         String token = tokenService.issue(memberId, memberName, roomName);
-        return new JoinResponse(roomName, token, liveKit.wsUrl(), created);
+        return new JoinResponse(roomName, token, liveKit.wsUrl(), created, creatorId);
     }
 
     /**

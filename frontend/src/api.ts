@@ -5,6 +5,7 @@ export interface JoinResponse {
   token: string;
   livekitUrl: string;
   created: boolean;
+  creatorId: number; // 그 방을 처음 연 회원 id (방장 판별용)
 }
 
 async function unwrap<T>(res: Response): Promise<T> {
