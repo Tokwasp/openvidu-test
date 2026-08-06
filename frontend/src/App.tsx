@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   createLocalTracks,
+  DisconnectReason,
   LocalAudioTrack,
   LocalVideoTrack,
   Participant,
@@ -53,6 +54,7 @@ export default function App() {
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [hasVideo, setHasVideo] = useState(false);
   const [needSound, setNeedSound] = useState(false);  // 브라우저 자동재생 차단 시 클릭 유도
+  const [dropInfo, setDropInfo] = useState<string | null>(null);  // 의도치 않게 방에서 튕겼을 때 이유
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [elapsed, setElapsed] = useState(0);
@@ -73,6 +75,8 @@ export default function App() {
   const preMicTrackRef = useRef<LocalAudioTrack | null>(null);
   const preCamTrackRef = useRef<LocalVideoTrack | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  // 내가 눌러서 나가는 정상 종료인지, LiveKit 이 떨군 비정상 끊김인지 구분.
+  const leavingRef = useRef(false);
 
   const pushLog = useCallback((line: string) => {
     setLog((prev) => [`${new Date().toLocaleTimeString()}  ${line}`, ...prev].slice(0, 60));
@@ -168,7 +172,15 @@ export default function App() {
         setNeedSound(blocked);
         if (blocked) pushLog('브라우저가 소리 재생을 막음 — "소리 켜기" 클릭 필요');
       })
-      .on(RoomEvent.Disconnected, () => pushLog('연결 종료됨'));
+      // 끊김 이유를 남긴다. 내가 나간 게 아니면(=LiveKit 이 떨군 것) 배너로 알린다.
+      // 미디어(UDP) 가 안 붙으면 여기서 비정상 끊김이 잡히고, 방이 비어 empty_timeout 으로 닫힌다.
+      .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+        const reasonName = reason !== undefined ? (DisconnectReason[reason] ?? String(reason)) : '알수없음';
+        pushLog(`연결 종료됨 (이유=${reasonName})`);
+        if (!leavingRef.current) {
+          setDropInfo(reasonName);  // 내가 안 나갔는데 끊김 → 사용자에게 표시
+        }
+      });
   };
 
   // 자동재생 차단 해제: 반드시 사용자 클릭 핸들러 안에서 동기적으로 startAudio 를 호출해야 먹힌다.
@@ -302,6 +314,8 @@ export default function App() {
   const handleParticipate = async () => {
     if (joining) return;
     setJoining(true);
+    leavingRef.current = false;   // 이번 연결은 정상 참여 — 끊기면 비정상으로 간주
+    setDropInfo(null);
     try {
       const info = await api.join(projectId, memberId, memberName);  // 여기서 처음 서버 호출
       setJoinInfo(info);
@@ -447,6 +461,7 @@ export default function App() {
   };
 
   const cleanup = () => {
+    leavingRef.current = true;   // 내가 나가는 정상 종료 → Disconnected 배너 안 띄움
     roomRef.current?.disconnect();
     roomRef.current = null;
     stopPrejoinTracks();  // 혹시 남은 프리조인 트랙 정리(참여 성공 시엔 이미 비어 있음)
@@ -605,6 +620,12 @@ export default function App() {
         <button className="soundBanner" onClick={enableSound}>
           🔊 브라우저가 소리를 막았어요 — 눌러서 상대 목소리 듣기
         </button>
+      )}
+
+      {dropInfo && (
+        <div className="soundBanner" style={{ background: '#ef4444' }}>
+          ⚠️ 서버와의 연결이 끊겼습니다 (이유={dropInfo}). 미디어(UDP) 연결 문제일 수 있어요 — 새로고침 후 다시 참여하세요.
+        </div>
       )}
 
       <main className="stage">
